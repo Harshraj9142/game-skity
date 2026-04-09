@@ -141,71 +141,140 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
     
     setConnecting(true);
     try {
-      // Debug: Log what's available on window
       console.log('🔍 Checking for Lace wallet...');
-      console.log('window.midnight:', window.midnight);
+      
+      // Wait a bit for extension to inject (especially important in Brave)
+      await new Promise(resolve => setTimeout(resolve, 100));
       
       // Check if midnight object exists
-      if (!window.midnight) {
+      const midnightObj = (window as any).midnight;
+      if (typeof window === 'undefined' || !midnightObj) {
         throw new Error('Lace wallet not found. Please install the Lace extension and refresh the page.');
       }
 
-      // Find the wallet API - it's stored with a UUID key
-      const walletKeys = Object.keys(window.midnight);
-      console.log('Available wallet keys:', walletKeys);
+      console.log('window.midnight:', midnightObj);
       
-      // Get the first wallet API (usually there's only one)
-      const walletKey = walletKeys.find(key => key !== 'mnLace' && typeof window.midnight![key] === 'object');
+      // Try multiple approaches to find the wallet API
+      let walletAPI: any = null;
+      let api: ConnectedAPI | null = null;
       
-      if (!walletKey) {
-        throw new Error('No Midnight wallet API found. Please make sure Lace is properly installed.');
+      // Approach 1: Try mnLace (standard Lace API)
+      if (midnightObj.mnLace) {
+        console.log('🔌 Found mnLace API');
+        walletAPI = midnightObj.mnLace;
+        
+        try {
+          // Check if already enabled
+          const isEnabled = await walletAPI.isEnabled?.();
+          if (isEnabled) {
+            console.log('Wallet already enabled, getting state...');
+            api = await walletAPI.state();
+          } else {
+            console.log('Enabling wallet...');
+            api = await walletAPI.enable();
+          }
+        } catch (err) {
+          console.warn('mnLace enable failed, trying connect:', err);
+          // Try connect method as fallback
+          api = await walletAPI.connect?.('preprod');
+        }
       }
-
-      console.log('🔌 Connecting to Lace wallet via key:', walletKey);
       
-      const walletAPI = window.midnight[walletKey];
-      console.log('Wallet API object:', walletAPI);
-      
-      // Call connect method with network ID (preprod for testnet)
-      console.log('Calling connect("preprod")...');
-      const api = await walletAPI.connect('preprod');
-      console.log('Connect result:', api);
+      // Approach 2: Try UUID-based keys (alternative Lace API structure)
+      if (!api) {
+        const walletKeys = Object.keys(midnightObj).filter(
+          key => key !== 'mnLace' && typeof midnightObj[key] === 'object'
+        );
+        console.log('Available wallet keys:', walletKeys);
+        
+        for (const walletKey of walletKeys) {
+          try {
+            console.log(`🔌 Trying wallet key: ${walletKey}`);
+            walletAPI = midnightObj[walletKey];
+            
+            // Try different connection methods
+            if (typeof walletAPI.connect === 'function') {
+              api = await walletAPI.connect('preprod');
+            } else if (typeof walletAPI.enable === 'function') {
+              api = await walletAPI.enable();
+            }
+            
+            if (api) {
+              console.log(`✅ Connected via ${walletKey}`);
+              break;
+            }
+          } catch (err) {
+            console.warn(`Failed with key ${walletKey}:`, err);
+            continue;
+          }
+        }
+      }
       
       if (!api) {
-        throw new Error('Failed to connect to Lace wallet');
-      }
-      
-      if (!api) {
-        throw new Error('Failed to enable Lace wallet');
+        throw new Error('Failed to connect to Lace wallet. Please make sure:\n1. Lace extension is installed\n2. You have a Midnight wallet created\n3. You are on the Preprod network\n4. The extension has permission to access this site');
       }
 
-      console.log('✅ Lace wallet enabled');
+      console.log('✅ Lace wallet connected, getting addresses...');
       
-      // Get wallet addresses using the correct API method
-      console.log('Getting wallet addresses...');
-      const addresses = await api.getShieldedAddresses();
-      console.log('📊 Wallet addresses:', addresses);
-      console.log('📊 Full addresses object keys:', Object.keys(addresses));
-      
-      // The contract expects a coin public key (shield-cpk), not a shielded address
-      // Check if coinPublicKey is available in the response
-      const coinPublicKey = (addresses as any).coinPublicKey || (addresses as any).publicKey;
-      
-      if (addresses && addresses.shieldedAddress) {
-        setConnectedAPI(api);
-        setShieldedAddress(addresses.shieldedAddress);
-        // Use coin public key if available, otherwise fall back to shielded address
-        setWalletAddress(coinPublicKey || addresses.shieldedAddress);
-        setIsConnected(true);
-        console.log('✅ Connected to Lace wallet');
-        console.log('   Shielded Address:', addresses.shieldedAddress);
-        console.log('   Coin Public Key:', coinPublicKey || 'not found');
-      } else {
-        console.error('No shielded address found:', addresses);
-        throw new Error('Failed to get wallet address');
+      // Get wallet addresses
+      let addresses: any;
+      try {
+        // Try different methods to get addresses
+        if (typeof api.getShieldedAddresses === 'function') {
+          addresses = await api.getShieldedAddresses();
+        } else if (typeof (api as any).getAddresses === 'function') {
+          addresses = await (api as any).getAddresses();
+        } else if (typeof (api as any).state === 'function') {
+          const state = await (api as any).state();
+          addresses = state?.addresses || state;
+        }
+      } catch (err) {
+        console.error('Failed to get addresses:', err);
+        throw new Error('Failed to get wallet addresses. Please make sure you have a Midnight wallet created in Lace.');
       }
+      
+      console.log('📊 Wallet addresses response:', addresses);
+      console.log('📊 Address keys:', Object.keys(addresses || {}));
+      
+      // Extract coin public key (required by contract)
+      // The Lace API returns coinPublicKey in the addresses object
+      const coinPublicKey = addresses?.coinPublicKey || 
+                           addresses?.publicKey ||
+                           addresses?.cpk ||
+                           addresses?.[0]?.coinPublicKey;
+      
+      // Extract shielded address (for display)
+      const shieldedAddr = addresses?.shieldedAddress || 
+                          addresses?.shield || 
+                          addresses?.[0]?.shieldedAddress;
+      
+      if (!coinPublicKey) {
+        console.error('No coin public key found in addresses:', addresses);
+        console.error('Available keys:', Object.keys(addresses || {}));
+        throw new Error(
+          'No coin public key found. Please ensure:\n' +
+          '1. You have a Midnight wallet created in Lace\n' +
+          '2. You are on the Preprod network\n' +
+          '3. Your Lace extension is up to date'
+        );
+      }
+      
+      if (!shieldedAddr) {
+        console.warn('No shielded address found, using coin public key for display');
+      }
+      
+      setConnectedAPI(api);
+      setShieldedAddress(shieldedAddr || coinPublicKey);
+      setWalletAddress(coinPublicKey); // Always use coin public key for contract
+      setIsConnected(true);
+      
+      console.log('✅ Successfully connected to Lace wallet');
+      console.log('   Coin Public Key (for contract):', coinPublicKey);
+      console.log('   Shielded Address (for display):', shieldedAddr || 'using cpk');
+      
     } catch (error) {
       console.error('❌ Failed to connect to wallet:', error);
+      setConnecting(false);
       throw error;
     } finally {
       setConnecting(false);

@@ -23,20 +23,55 @@ export interface GamePrivateState {
   readonly myVote: number;
   /** Events the player has personally witnessed. */
   readonly witnessedEvents: ReadonlyArray<{ location: Uint8Array; roundId: number }>;
+  /** Player's unique secret key (derived from wallet) */
+  readonly secretKey?: Uint8Array;
 }
 
-/** A random 32-byte secret key generated once and stored in private state. */
-const PLACEHOLDER_SK = new Uint8Array(32).fill(0x42);
+/**
+ * Generate a deterministic secret key from wallet address
+ * This ensures each wallet has a unique but consistent secret key
+ */
+function generateSecretKey(walletAddress?: string): Uint8Array {
+  if (!walletAddress) {
+    // Fallback to random key if no wallet address
+    return crypto.getRandomValues(new Uint8Array(32));
+  }
+  
+  // Create a deterministic key from wallet address
+  const encoder = new TextEncoder();
+  const data = encoder.encode(`framed-sk:${walletAddress}`);
+  
+  // Use crypto.subtle to hash the wallet address
+  // For now, use a simple approach - in production, use proper key derivation
+  const key = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    key[i] = data[i % data.length] ^ (i * 7); // Simple mixing
+  }
+  
+  return key;
+}
 
 export const witnesses: Witnesses<GamePrivateState> = {
   /**
    * Returns the player's local secret key (never revealed on-chain).
-   * In a production client you'd derive this from the wallet seed.
+   * Uses the secret key from private state, or generates one if not present.
    */
   localSecretKey(
     context: WitnessContext<Ledger, GamePrivateState>,
   ): [GamePrivateState, Uint8Array] {
-    return [context.privateState, PLACEHOLDER_SK];
+    // Use stored secret key if available, otherwise generate a new one
+    const secretKey = context.privateState.secretKey || generateSecretKey();
+    
+    // If we generated a new key, store it in private state
+    if (!context.privateState.secretKey) {
+      const newState: GamePrivateState = {
+        ...context.privateState,
+        secretKey,
+      };
+      return [newState, secretKey];
+    }
+    
+    return [context.privateState, secretKey];
   },
 
   /**

@@ -12,7 +12,7 @@ import { ledger } from '@framed/contract';
 type LedgerState = ReturnType<typeof ledger>;
 
 export const useGameContract = (contractAddress?: string) => {
-  const { isConnected, providers } = useWallet();
+  const { isConnected, providers, walletAddress } = useWallet();
   const [isContractConnected, setIsContractConnected] = useState(false);
   const [gameState, setGameState] = useState<LedgerState | null>(null);
   const [loading, setLoading] = useState(false);
@@ -20,19 +20,19 @@ export const useGameContract = (contractAddress?: string) => {
 
   // Connect to contract when wallet is connected and address is provided
   useEffect(() => {
-    if (isConnected && providers && contractAddress && !isContractConnected) {
+    if (isConnected && providers && contractAddress && walletAddress && !isContractConnected) {
       connectContract();
     }
-  }, [isConnected, providers, contractAddress, isContractConnected]);
+  }, [isConnected, providers, contractAddress, walletAddress, isContractConnected]);
 
   const connectContract = useCallback(async () => {
-    if (!providers || !contractAddress) return;
+    if (!providers || !contractAddress || !walletAddress) return;
     
     setLoading(true);
     setError(null);
     
     try {
-      await midnight.connectToGame(contractAddress, providers);
+      await midnight.connectToGame(contractAddress, providers, walletAddress);
       setIsContractConnected(true);
       await refreshGameState();
     } catch (err) {
@@ -42,7 +42,7 @@ export const useGameContract = (contractAddress?: string) => {
     } finally {
       setLoading(false);
     }
-  }, [providers, contractAddress]);
+  }, [providers, contractAddress, walletAddress]);
 
   const refreshGameState = useCallback(async () => {
     try {

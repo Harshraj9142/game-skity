@@ -26,24 +26,50 @@ let gameContractInstance: DeployedGameContract | null = null;
 let currentProviders: MidnightGameProviders | null = null;
 
 /**
+ * Generate a deterministic secret key from wallet address
+ * This ensures each wallet has a unique but consistent secret key
+ */
+function generateSecretKeyFromWallet(walletAddress: string): Uint8Array {
+  // Create a deterministic key from wallet address
+  const encoder = new TextEncoder();
+  const data = encoder.encode(`framed-sk:${walletAddress}`);
+  
+  // Use a simple mixing function to generate 32 bytes
+  const key = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    key[i] = data[i % data.length] ^ (i * 7);
+  }
+  
+  return key;
+}
+
+/**
  * Initialize connection to an existing game contract
  */
 export const connectToGame = async (
   contractAddress: string,
   providers: MidnightGameProviders,
+  walletAddress: string,
   initialPrivateState?: GamePrivateState
 ): Promise<void> => {
   console.log('🔗 Connecting to game contract:', contractAddress);
+  console.log('👤 Wallet address:', walletAddress);
   
   try {
     currentProviders = providers;
+    
+    // Generate secret key from wallet address for deterministic key derivation
+    const secretKey = generateSecretKeyFromWallet(walletAddress);
     
     // Default private state for new players
     const privateState: GamePrivateState = initialPrivateState || {
       role: 99, // Unknown until assigned
       myVote: 0,
       witnessedEvents: [],
+      secretKey, // Include the generated secret key
     };
+    
+    console.log('🔑 Generated secret key for wallet');
     
     // Find and connect to the deployed contract
     gameContractInstance = await findDeployedContract(
