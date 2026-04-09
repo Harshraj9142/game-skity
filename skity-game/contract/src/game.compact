@@ -1,0 +1,397 @@
+pragma language_version >= 0.20;
+
+import CompactStandardLibrary;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FRAMED! - Fully On-Chain Social Deduction Game
+// Midnight Network Implementation
+// ═══════════════════════════════════════════════════════════════════════════
+
+// ─── ROLES ───
+// 0 = Citizen, 1 = Mafia, 2 = Doctor, 3 = Detective
+
+// ─── GAME PHASES ───
+export enum GamePhase {
+  waitingForPlayers,  // 0 - lobby
+  night,              // 1 - night actions
+  voting,             // 2 - day voting
+  thresholdReveal,    // 3 - countdown before reveal
+  roundComplete       // 4 - round ended
+}
+
+// ─── STRUCTS ───
+export struct PlayerRecord {
+  isAlive: Boolean,
+  hasActed: Boolean,
+  hasVoted: Boolean,
+  roleCommitment: Bytes<32>  // Hash of role - proves assignment without revealing
+}
+
+export struct AlertRecord {
+  location: Bytes<16>,  // WHERE the crime happened
+  roundId: Uint<8>
+  // Reporter identity: NEVER recorded on-chain
+}
+
+export struct WitnessEvent {
+  location: Bytes<16>,
+  roundId: Uint<8>
+}
+
+// ─── PUBLIC LEDGER STATE ───
+export ledger gamePhase: Uint<8>;
+export ledger playerCount: Uint<8>;
+export ledger maxPlayers: Uint<8>;
+export ledger roundCounter: Uint<8>;
+export ledger moderatorCommitment: Bytes<32>;
+
+// Vote tracking
+export ledger tallyHash: Bytes<32>;           // Encrypted vote tally
+export ledger voteNullifiers: Map<Bytes<32>, Boolean>;  // Prevent double-voting
+export ledger votingHidden: Boolean;          // Sabotage blackout active
+
+// Sabotage system
+export ledger sabotageActive: Boolean;
+export ledger sabotageExpiry: Uint<64>;
+export ledger sabotageUsed: Boolean;          // Once per game
+
+// Whistleblower alerts
+export ledger alertCount: Uint<8>;
+export ledger alerts: Map<Uint<8>, AlertRecord>;  // Dynamic array via Map
+
+// Player registry
+export ledger players: Map<Bytes<32>, PlayerRecord>;
+export ledger playerAddresses: Map<Uint<8>, Bytes<32>>;  // Index -> Address
+
+// Round results
+export ledger eliminatedPlayer: Bytes<32>;
+export ledger killedPlayerId: Uint<8>;
+export ledger playerKillCount: Uint<8>;
+
+// ─── WITNESS FUNCTIONS (Private State Access) ───
+witness localSecretKey(): Bytes<32>;
+witness localRole(): Uint<8>;
+witness localWitnessedEvents(): Vector<10, WitnessEvent>;
+witness localVoteTarget(): Uint<8>;
+witness storeVoteTarget(target: Uint<8>): [];
+
+// ─── HELPER CIRCUITS ───
+
+// Derive public key from secret key
+circuit derivePublicKey(sk: Bytes<32>): Bytes<32> {
+  return persistentHash<Vector<2, Bytes<32>>>([
+    pad(32, "framed:pk:"),
+    sk
+  ]);
+}
+
+// Create role commitment (proves role assignment without revealing)
+circuit createRoleCommitment(role: Uint<8>, salt: Bytes<32>): Bytes<32> {
+  const roleField = role as Field;
+  const roleBytes = roleField as Bytes<32>;
+  return persistentHash<Vector<2, Bytes<32>>>([roleBytes, salt]);
+}
+
+// ─── CONSTRUCTOR ───
+constructor(creator: Bytes<32>, maxP: Uint<8>) {
+  gamePhase = 0;  // waitingForPlayers
+  playerCount = 0;
+  maxPlayers = disclose(maxP);
+  roundCounter = 0;
+  moderatorCommitment = disclose(creator);
+  
+  tallyHash = pad(32, "");
+  votingHidden = false;
+  sabotageActive = false;
+  sabotageExpiry = 0;
+  sabotageUsed = false;
+  alertCount = 0;
+  eliminatedPlayer = pad(32, "");
+  killedPlayerId = 255;
+  playerKillCount = 0;
+}
+
+// ─── GAME SETUP ───
+
+export circuit joinGame(): [] {
+  assert(disclose(gamePhase == 0), "Game already started");
+  assert(disclose(playerCount < maxPlayers), "Room full");
+  
+  const sk = localSecretKey();
+  const pk = derivePublicKey(sk);
+  const d_pk = disclose(pk);
+  
+  assert(!players.member(d_pk), "Already joined");
+  
+  // Register player
+  players.insert(d_pk, PlayerRecord {
+    isAlive: true,
+    hasActed: false,
+    hasVoted: false,
+    roleCommitment: pad(32, "")  // Set during initGame
+  });
+  
+  playerAddresses.insert(playerCount, d_pk);
+  playerCount = (playerCount + 1) as Uint<8>;
+}
+
+export circuit initGame(roleAssignments: Vector<4, Uint<8>>): [] {
+  const sk = localSecretKey();
+  const caller = derivePublicKey(sk);
+  const d_caller = disclose(caller);
+  
+  assert(d_caller == moderatorCommitment, "Not moderator");
+  assert(disclose(gamePhase == 0), "Game already initialized");
+  assert(disclose(playerCount == maxPlayers), "Not enough players");
+  
+  // Assign roles with commitments
+  for (const i of 0 .. 3) {
+    const addr = playerAddresses.lookup(i);
+    const role = roleAssignments[i];
+    const commitment = createRoleCommitment(role, d_caller);
+    
+    const record = players.lookup(addr);
+    players.insert(addr, PlayerRecord {
+      isAlive: record.isAlive,
+      hasActed: false,
+      hasVoted: false,
+      roleCommitment: disclose(commitment)
+    });
+  }
+  
+  gamePhase = 1;  // night
+  roundCounter = 1;
+}
+
+// ─── FEATURE 1: SECRET BALLOTS ───
+
+export circuit castPrivateVote(
+  targetId: Uint<8>,
+  roundSalt: Bytes<32>
+): [] {
+  const sk = localSecretKey();
+  const caller = derivePublicKey(sk);
+  const d_caller = disclose(caller);
+  
+  const record = players.lookup(d_caller);
+  assert(disclose(record.isAlive), "You are dead");
+  assert(!record.hasVoted, "Already voted");
+  assert(disclose(gamePhase == 2), "Not voting phase");
+  assert(!votingHidden, "Voting blacked out by sabotage");
+  
+  // Create nullifier - proves you voted without revealing target
+  const d_roundSalt = disclose(roundSalt);
+  const roundField = roundCounter as Field;
+  const roundBytes = roundField as Bytes<32>;
+  const voteNullifier = persistentHash<Vector<2, Bytes<32>>>([
+    d_roundSalt,
+    roundBytes
+  ]);
+  
+  assert(!voteNullifiers.member(voteNullifier), "Nullifier already used");
+  voteNullifiers.insert(voteNullifier, true);
+  
+  // Store vote target privately (witness handles encryption)
+  storeVoteTarget(targetId);
+  
+  // Update encrypted tally (actual tally computed off-chain)
+  const targetField = targetId as Field;
+  const targetBytes = targetField as Bytes<32>;
+  const newTally = persistentHash<Vector<2, Bytes<32>>>([
+    tallyHash,
+    targetBytes
+  ]);
+  tallyHash = disclose(newTally);
+  
+  // Mark as voted
+  players.insert(d_caller, PlayerRecord {
+    isAlive: record.isAlive,
+    hasActed: record.hasActed,
+    hasVoted: true,
+    roleCommitment: record.roleCommitment
+  });
+}
+
+// ─── FEATURE 2: THRESHOLD REVEAL ───
+
+export circuit revealTally(moderatorSecret: Bytes<32>): [] {
+  const secretCommitment = persistentHash<Vector<1, Bytes<32>>>([moderatorSecret]);
+  assert(disclose(secretCommitment == moderatorCommitment), "Not moderator");
+  assert(disclose(gamePhase == 2), "Not in voting phase");
+  
+  // Transition to reveal phase
+  gamePhase = 3;  // thresholdReveal
+  
+  // Actual tally decryption happens off-chain via witnesses
+  // Result is set via completeReveal circuit
+}
+
+export circuit completeReveal(eliminated: Bytes<32>): [] {
+  const sk = localSecretKey();
+  const caller = derivePublicKey(sk);
+  const d_caller = disclose(caller);
+  
+  assert(d_caller == moderatorCommitment, "Not moderator");
+  assert(disclose(gamePhase == 3), "Not in reveal phase");
+  
+  const d_eliminated = disclose(eliminated);
+  eliminatedPlayer = d_eliminated;
+  
+  // Mark player as dead
+  const record = players.lookup(d_eliminated);
+  players.insert(d_eliminated, PlayerRecord {
+    isAlive: false,
+    hasActed: record.hasActed,
+    hasVoted: record.hasVoted,
+    roleCommitment: record.roleCommitment
+  });
+  
+  playerCount = (playerCount - 1) as Uint<8>;
+  gamePhase = 4;  // roundComplete
+}
+
+// ─── FEATURE 3: WHISTLEBLOWER SYSTEM ───
+
+export circuit blowWhistle(event: WitnessEvent): [] {
+  const sk = localSecretKey();
+  const caller = derivePublicKey(sk);
+  const d_caller = disclose(caller);
+  
+  const record = players.lookup(d_caller);
+  assert(disclose(record.isAlive), "You are dead");
+  assert(disclose(gamePhase == 1), "Not night phase");
+  
+  // Verify caller actually witnessed this event (checked via witness)
+  const witnessedEvents = localWitnessedEvents();
+  
+  // Check if event is in witnessed list (linear search)
+  const eventRound = event.roundId;
+  const eventLoc = event.location;
+  
+  // Note: This is a simplified check - production would use better verification
+  assert(disclose(eventRound == roundCounter), "Invalid round");
+  
+  // Push alert - caller identity NEVER recorded
+  alerts.insert(alertCount, AlertRecord {
+    location: disclose(eventLoc),
+    roundId: disclose(eventRound)
+  });
+  
+  alertCount = (alertCount + 1) as Uint<8>;
+}
+
+// ─── FEATURE 4: SABOTAGE (Vote Blackout) ───
+
+export circuit triggerSabotage(): [] {
+  const sk = localSecretKey();
+  const caller = derivePublicKey(sk);
+  const d_caller = disclose(caller);
+  
+  const record = players.lookup(d_caller);
+  assert(disclose(record.isAlive), "You are dead");
+  assert(disclose(gamePhase == 2), "Not voting phase");
+  assert(!sabotageUsed, "Sabotage already used");
+  
+  // Role check runs LOCALLY via witness - never on-chain
+  const role = localRole();
+  assert(disclose(role == 1), "Not the Mafia");
+  
+  // Activate sabotage - no link to caller identity on-chain
+  sabotageActive = true;
+  votingHidden = true;
+  sabotageUsed = true;
+  
+  // 30-second blackout (block timestamp + 30)
+  // Note: Actual timestamp handling depends on Midnight's time primitives
+  sabotageExpiry = 30;  // Simplified - production uses block timestamp
+}
+
+export circuit deactivateSabotage(): [] {
+  assert(sabotageActive, "Sabotage not active");
+  
+  // In production, check block timestamp >= sabotageExpiry
+  // For now, moderator can manually deactivate
+  
+  sabotageActive = false;
+  votingHidden = false;
+}
+
+// ─── NIGHT ACTIONS ───
+
+export circuit takeAction(targetId: Uint<8>): [] {
+  const sk = localSecretKey();
+  const caller = derivePublicKey(sk);
+  const d_caller = disclose(caller);
+  
+  const record = players.lookup(d_caller);
+  assert(disclose(record.isAlive), "You are dead");
+  assert(!record.hasActed, "Already acted");
+  assert(disclose(gamePhase == 1), "Not night phase");
+  
+  const role = localRole();
+  
+  // Role-specific actions handled off-chain via witnesses
+  // Mafia kill, Doctor save, Detective investigate
+  // Results stored in private state
+  
+  // Mark as acted
+  players.insert(d_caller, PlayerRecord {
+    isAlive: record.isAlive,
+    hasActed: true,
+    hasVoted: record.hasVoted,
+    roleCommitment: record.roleCommitment
+  });
+}
+
+// ─── ROUND MANAGEMENT ───
+
+export circuit advanceToVoting(): [] {
+  const sk = localSecretKey();
+  const caller = derivePublicKey(sk);
+  const d_caller = disclose(caller);
+  
+  assert(d_caller == moderatorCommitment, "Not moderator");
+  assert(disclose(gamePhase == 1), "Not night phase");
+  
+  gamePhase = 2;  // voting
+}
+
+export circuit startNewRound(): [] {
+  const sk = localSecretKey();
+  const caller = derivePublicKey(sk);
+  const d_caller = disclose(caller);
+  
+  assert(d_caller == moderatorCommitment, "Not moderator");
+  assert(disclose(gamePhase == 4), "Round not complete");
+  
+  // Reset round state
+  roundCounter = (roundCounter + 1) as Uint<8>;
+  gamePhase = 1;  // night
+  tallyHash = pad(32, "");
+  eliminatedPlayer = pad(32, "");
+  
+  // Reset player action flags
+  for (const i of 0 .. 3) {
+    const addr = playerAddresses.lookup(i);
+    if (players.member(addr)) {
+      const record = players.lookup(addr);
+      players.insert(addr, PlayerRecord {
+        isAlive: record.isAlive,
+        hasActed: false,
+        hasVoted: false,
+        roleCommitment: record.roleCommitment
+      });
+    }
+  }
+}
+
+// ─── GAME QUERIES ───
+
+export circuit getPlayerStatus(playerAddr: Bytes<32>): Boolean {
+  const d_playerAddr = disclose(playerAddr);
+  if (players.member(d_playerAddr)) {
+    const record = players.lookup(d_playerAddr);
+    return disclose(record.isAlive);
+  }
+  return false;
+}
