@@ -149,7 +149,7 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('joinGame',
                                      'argument 1 (as invoked from Typescript)',
-                                     'game.compact line 116 char 1',
+                                     'game.compact line 120 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
@@ -173,14 +173,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('initGame',
                                      'argument 1 (as invoked from Typescript)',
-                                     'game.compact line 138 char 1',
+                                     'game.compact line 142 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(Array.isArray(roleAssignments_0) && roleAssignments_0.length === 4 && roleAssignments_0.every((t) => typeof(t) === 'bigint' && t >= 0n && t <= 255n))) {
           __compactRuntime.typeError('initGame',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'game.compact line 138 char 1',
+                                     'game.compact line 142 char 1',
                                      'Vector<4, Uint<0..256>>',
                                      roleAssignments_0)
         }
@@ -210,21 +210,21 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('castPrivateVote',
                                      'argument 1 (as invoked from Typescript)',
-                                     'game.compact line 168 char 1',
+                                     'game.compact line 172 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(typeof(targetId_0) === 'bigint' && targetId_0 >= 0n && targetId_0 <= 255n)) {
           __compactRuntime.typeError('castPrivateVote',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'game.compact line 168 char 1',
+                                     'game.compact line 172 char 1',
                                      'Uint<0..256>',
                                      targetId_0)
         }
         if (!(roundSalt_0.buffer instanceof ArrayBuffer && roundSalt_0.BYTES_PER_ELEMENT === 1 && roundSalt_0.length === 32)) {
           __compactRuntime.typeError('castPrivateVote',
                                      'argument 2 (argument 3 as invoked from Typescript)',
-                                     'game.compact line 168 char 1',
+                                     'game.compact line 172 char 1',
                                      'Bytes<32>',
                                      roundSalt_0)
         }
@@ -254,14 +254,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('revealTally',
                                      'argument 1 (as invoked from Typescript)',
-                                     'game.compact line 217 char 1',
+                                     'game.compact line 221 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(moderatorSecret_0.buffer instanceof ArrayBuffer && moderatorSecret_0.BYTES_PER_ELEMENT === 1 && moderatorSecret_0.length === 32)) {
           __compactRuntime.typeError('revealTally',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'game.compact line 217 char 1',
+                                     'game.compact line 221 char 1',
                                      'Bytes<32>',
                                      moderatorSecret_0)
         }
@@ -290,14 +290,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('completeReveal',
                                      'argument 1 (as invoked from Typescript)',
-                                     'game.compact line 229 char 1',
+                                     'game.compact line 233 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(eliminated_0.buffer instanceof ArrayBuffer && eliminated_0.BYTES_PER_ELEMENT === 1 && eliminated_0.length === 32)) {
           __compactRuntime.typeError('completeReveal',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'game.compact line 229 char 1',
+                                     'game.compact line 233 char 1',
                                      'Bytes<32>',
                                      eliminated_0)
         }
@@ -326,14 +326,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('blowWhistle',
                                      'argument 1 (as invoked from Typescript)',
-                                     'game.compact line 255 char 1',
+                                     'game.compact line 259 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(typeof(event_0) === 'object' && event_0.location.buffer instanceof ArrayBuffer && event_0.location.BYTES_PER_ELEMENT === 1 && event_0.location.length === 16 && typeof(event_0.roundId) === 'bigint' && event_0.roundId >= 0n && event_0.roundId <= 255n)) {
           __compactRuntime.typeError('blowWhistle',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'game.compact line 255 char 1',
+                                     'game.compact line 259 char 1',
                                      'struct WitnessEvent<location: Bytes<16>, roundId: Uint<0..256>>',
                                      event_0)
         }
@@ -359,7 +359,7 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('triggerSabotage',
                                      'argument 1 (as invoked from Typescript)',
-                                     'game.compact line 285 char 1',
+                                     'game.compact line 289 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
@@ -382,7 +382,7 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('deactivateSabotage',
                                      'argument 1 (as invoked from Typescript)',
-                                     'game.compact line 309 char 1',
+                                     'game.compact line 313 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
@@ -406,14 +406,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('takeAction',
                                      'argument 1 (as invoked from Typescript)',
-                                     'game.compact line 321 char 1',
+                                     'game.compact line 325 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(typeof(targetId_0) === 'bigint' && targetId_0 >= 0n && targetId_0 <= 255n)) {
           __compactRuntime.typeError('takeAction',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'game.compact line 321 char 1',
+                                     'game.compact line 325 char 1',
                                      'Uint<0..256>',
                                      targetId_0)
         }
@@ -441,7 +441,7 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('advanceToVoting',
                                      'argument 1 (as invoked from Typescript)',
-                                     'game.compact line 348 char 1',
+                                     'game.compact line 352 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
@@ -464,7 +464,7 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('startNewRound',
                                      'argument 1 (as invoked from Typescript)',
-                                     'game.compact line 359 char 1',
+                                     'game.compact line 363 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
@@ -488,14 +488,14 @@ export class Contract {
         if (!(typeof(contextOrig_0) === 'object' && contextOrig_0.currentQueryContext != undefined)) {
           __compactRuntime.typeError('getPlayerStatus',
                                      'argument 1 (as invoked from Typescript)',
-                                     'game.compact line 390 char 1',
+                                     'game.compact line 394 char 1',
                                      'CircuitContext',
                                      contextOrig_0)
         }
         if (!(playerAddr_0.buffer instanceof ArrayBuffer && playerAddr_0.BYTES_PER_ELEMENT === 1 && playerAddr_0.length === 32)) {
           __compactRuntime.typeError('getPlayerStatus',
                                      'argument 1 (argument 2 as invoked from Typescript)',
-                                     'game.compact line 390 char 1',
+                                     'game.compact line 394 char 1',
                                      'Bytes<32>',
                                      playerAddr_0)
         }
@@ -546,12 +546,11 @@ export class Contract {
     };
   }
   initialState(...args_0) {
-    if (args_0.length !== 3) {
-      throw new __compactRuntime.CompactError(`Contract state constructor: expected 3 arguments (as invoked from Typescript), received ${args_0.length}`);
+    if (args_0.length !== 2) {
+      throw new __compactRuntime.CompactError(`Contract state constructor: expected 2 arguments (as invoked from Typescript), received ${args_0.length}`);
     }
     const constructorContext_0 = args_0[0];
-    const creator_0 = args_0[1];
-    const maxP_0 = args_0[2];
+    const maxP_0 = args_0[1];
     if (typeof(constructorContext_0) !== 'object') {
       throw new __compactRuntime.CompactError(`Contract state constructor: expected 'constructorContext' in argument 1 (as invoked from Typescript) to be an object`);
     }
@@ -564,16 +563,9 @@ export class Contract {
     if (typeof(constructorContext_0.initialZswapLocalState) !== 'object') {
       throw new __compactRuntime.CompactError(`Contract state constructor: expected 'initialZswapLocalState' in argument 1 (as invoked from Typescript) to be an object`);
     }
-    if (!(creator_0.buffer instanceof ArrayBuffer && creator_0.BYTES_PER_ELEMENT === 1 && creator_0.length === 32)) {
-      __compactRuntime.typeError('Contract state constructor',
-                                 'argument 1 (argument 2 as invoked from Typescript)',
-                                 'game.compact line 96 char 1',
-                                 'Bytes<32>',
-                                 creator_0)
-    }
     if (!(typeof(maxP_0) === 'bigint' && maxP_0 >= 0n && maxP_0 <= 255n)) {
       __compactRuntime.typeError('Contract state constructor',
-                                 'argument 2 (argument 3 as invoked from Typescript)',
+                                 'argument 1 (argument 2 as invoked from Typescript)',
                                  'game.compact line 96 char 1',
                                  'Uint<0..256>',
                                  maxP_0)
@@ -932,6 +924,8 @@ export class Contract {
                                                                                               alignment: _descriptor_1.alignment() }).encode() } },
                                        { ins: { cached: false, n: 1 } },
                                        { ins: { cached: true, n: 1 } }]);
+    const sk_0 = this._localSecretKey_0(context, partialProofData);
+    const moderatorPk_0 = this._derivePublicKey_0(sk_0);
     const tmp_0 = 0n;
     __compactRuntime.queryLedgerState(context,
                                       partialProofData,
@@ -1016,7 +1010,7 @@ export class Contract {
                                                  value: __compactRuntime.StateValue.newCell({ value: _descriptor_1.toValue(1n),
                                                                                               alignment: _descriptor_1.alignment() }).encode() } },
                                        { push: { storage: true,
-                                                 value: __compactRuntime.StateValue.newCell({ value: _descriptor_0.toValue(creator_0),
+                                                 value: __compactRuntime.StateValue.newCell({ value: _descriptor_0.toValue(moderatorPk_0),
                                                                                               alignment: _descriptor_0.alignment() }).encode() } },
                                        { ins: { cached: false, n: 1 } },
                                        { ins: { cached: true, n: 1 } }]);
@@ -1408,7 +1402,7 @@ export class Contract {
                                        { ins: { cached: true, n: 2 } }]);
     const tmp_2 = ((t1) => {
                     if (t1 > 255n) {
-                      throw new __compactRuntime.CompactError('game.compact line 135 char 17: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 255');
+                      throw new __compactRuntime.CompactError('game.compact line 139 char 17: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 255');
                     }
                     return t1;
                   })(_descriptor_1.fromValue(__compactRuntime.queryLedgerState(context,
@@ -1713,7 +1707,7 @@ export class Contract {
                                                                                                result: undefined } }]).value);
     const roundBytes_0 = __compactRuntime.convertFieldToBytes(32,
                                                               roundField_0,
-                                                              'game.compact line 185 char 22');
+                                                              'game.compact line 189 char 22');
     const voteNullifier_0 = this._persistentHash_1([d_roundSalt_0, roundBytes_0]);
     __compactRuntime.assert(!_descriptor_2.fromValue(__compactRuntime.queryLedgerState(context,
                                                                                        partialProofData,
@@ -1759,7 +1753,7 @@ export class Contract {
     const targetField_0 = targetId_0;
     const targetBytes_0 = __compactRuntime.convertFieldToBytes(32,
                                                                targetField_0,
-                                                               'game.compact line 199 char 23');
+                                                               'game.compact line 203 char 23');
     const newTally_0 = this._persistentHash_1([_descriptor_0.fromValue(__compactRuntime.queryLedgerState(context,
                                                                                                          partialProofData,
                                                                                                          [
@@ -2134,7 +2128,7 @@ export class Contract {
                                        { ins: { cached: true, n: 2 } }]);
     const tmp_2 = ((t1) => {
                     if (t1 > 255n) {
-                      throw new __compactRuntime.CompactError('game.compact line 280 char 16: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 255');
+                      throw new __compactRuntime.CompactError('game.compact line 284 char 16: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 255');
                     }
                     return t1;
                   })(_descriptor_1.fromValue(__compactRuntime.queryLedgerState(context,
@@ -2527,7 +2521,7 @@ export class Contract {
                             'Round not complete');
     const tmp_0 = ((t1) => {
                     if (t1 > 255n) {
-                      throw new __compactRuntime.CompactError('game.compact line 368 char 18: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 255');
+                      throw new __compactRuntime.CompactError('game.compact line 372 char 18: cast from Field or Uint value to smaller Uint value failed: ' + t1 + ' is greater than 255');
                     }
                     return t1;
                   })(_descriptor_1.fromValue(__compactRuntime.queryLedgerState(context,

@@ -1,0 +1,293 @@
+{
+  "compiler-version": "0.30.0",
+  "language-version": "0.22.0",
+  "runtime-version": "0.15.0",
+  "circuits": [
+    {
+      "name": "joinGame",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "initGame",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "roleAssignments",
+          "type": {
+            "type-name": "Vector",
+            "length": 4,
+            "type": {
+              "type-name": "Uint",
+              "maxval": 255
+            }
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "castPrivateVote",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "targetId",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 255
+          }
+        },
+        {
+          "name": "roundSalt",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "revealTally",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "moderatorSecret",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "completeReveal",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "eliminated",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "blowWhistle",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "event",
+          "type": {
+            "type-name": "Struct",
+            "name": "WitnessEvent",
+            "elements": [
+              {
+                "name": "location",
+                "type": {
+                  "type-name": "Bytes",
+                  "length": 16
+                }
+              },
+              {
+                "name": "roundId",
+                "type": {
+                  "type-name": "Uint",
+                  "maxval": 255
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "triggerSabotage",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "deactivateSabotage",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "takeAction",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "targetId",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 255
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "advanceToVoting",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "startNewRound",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+      ],
+      "result-type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    },
+    {
+      "name": "getPlayerStatus",
+      "pure": false,
+      "proof": true,
+      "arguments": [
+        {
+          "name": "playerAddr",
+          "type": {
+            "type-name": "Bytes",
+            "length": 32
+          }
+        }
+      ],
+      "result-type": {
+        "type-name": "Boolean"
+      }
+    }
+  ],
+  "witnesses": [
+    {
+      "name": "localSecretKey",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Bytes",
+        "length": 32
+      }
+    },
+    {
+      "name": "localRole",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Uint",
+        "maxval": 255
+      }
+    },
+    {
+      "name": "localWitnessedEvents",
+      "arguments": [
+      ],
+      "result type": {
+        "type-name": "Vector",
+        "length": 10,
+        "type": {
+          "type-name": "Struct",
+          "name": "WitnessEvent",
+          "elements": [
+            {
+              "name": "location",
+              "type": {
+                "type-name": "Bytes",
+                "length": 16
+              }
+            },
+            {
+              "name": "roundId",
+              "type": {
+                "type-name": "Uint",
+                "maxval": 255
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "storeVoteTarget",
+      "arguments": [
+        {
+          "name": "target",
+          "type": {
+            "type-name": "Uint",
+            "maxval": 255
+          }
+        }
+      ],
+      "result type": {
+        "type-name": "Tuple",
+        "types": [
+        ]
+      }
+    }
+  ],
+  "contracts": [
+  ]
+}

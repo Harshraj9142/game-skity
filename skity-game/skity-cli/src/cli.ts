@@ -152,12 +152,11 @@ const deployOrJoin = async (
       case '1':
         try {
           const contract = await api.withStatus('Deploying game contract', () => {
-            const dummyHostKey = new Uint8Array(32).fill(0xee);
             return api.deploy(providers, {
               role: 0,      // host starts as Citizen
               myVote: 0,
               witnessedEvents: [],
-            }, dummyHostKey, 10n);
+            }, 10n);
           });
           console.log(`  Contract deployed at: ${contract.deployTxData.public.contractAddress}\n`);
           return contract;

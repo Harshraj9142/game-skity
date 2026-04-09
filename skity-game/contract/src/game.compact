@@ -72,33 +72,33 @@ export ledger playerKillCount: Uint<8>;
 witness localSecretKey(): Bytes<32>;
 witness localRole(): Uint<8>;
 witness localWitnessedEvents(): Vector<10, WitnessEvent>;
-witness localVoteTarget(): Uint<8>;
 witness storeVoteTarget(target: Uint<8>): [];
 
 // ─── HELPER CIRCUITS ───
 
 // Derive public key from secret key
 circuit derivePublicKey(sk: Bytes<32>): Bytes<32> {
-  return persistentHash<Vector<2, Bytes<32>>>([
-    pad(32, "framed:pk:"),
-    sk
-  ]);
+  const prefix = pad(32, "framed:pk:");
+  return persistentHash<Bytes<64>>(prefix ++ sk);
 }
 
 // Create role commitment (proves role assignment without revealing)
 circuit createRoleCommitment(role: Uint<8>, salt: Bytes<32>): Bytes<32> {
-  const roleField = role as Field;
-  const roleBytes = roleField as Bytes<32>;
-  return persistentHash<Vector<2, Bytes<32>>>([roleBytes, salt]);
+  const roleBytes = (role as Field) as Bytes<32>;
+  return persistentHash<Bytes<64>>(roleBytes ++ salt);
 }
 
 // ─── CONSTRUCTOR ───
-constructor(creator: Bytes<32>, maxP: Uint<8>) {
+constructor(maxP: Uint<8>) {
+  // Derive moderator's public key from their secret key
+  const sk = localSecretKey();
+  const moderatorPk = derivePublicKey(sk);
+  
   gamePhase = 0;  // waitingForPlayers
   playerCount = 0;
   maxPlayers = disclose(maxP);
   roundCounter = 0;
-  moderatorCommitment = disclose(creator);
+  moderatorCommitment = disclose(moderatorPk);
   
   tallyHash = pad(32, "");
   votingHidden = false;
@@ -181,12 +181,8 @@ export circuit castPrivateVote(
   
   // Create nullifier - proves you voted without revealing target
   const d_roundSalt = disclose(roundSalt);
-  const roundField = roundCounter as Field;
-  const roundBytes = roundField as Bytes<32>;
-  const voteNullifier = persistentHash<Vector<2, Bytes<32>>>([
-    d_roundSalt,
-    roundBytes
-  ]);
+  const roundBytes = (roundCounter as Field) as Bytes<32>;
+  const voteNullifier = persistentHash<Bytes<64>>(d_roundSalt ++ roundBytes);
   
   assert(!voteNullifiers.member(voteNullifier), "Nullifier already used");
   voteNullifiers.insert(voteNullifier, true);
@@ -195,12 +191,8 @@ export circuit castPrivateVote(
   storeVoteTarget(targetId);
   
   // Update encrypted tally (actual tally computed off-chain)
-  const targetField = targetId as Field;
-  const targetBytes = targetField as Bytes<32>;
-  const newTally = persistentHash<Vector<2, Bytes<32>>>([
-    tallyHash,
-    targetBytes
-  ]);
+  const targetBytes = (targetId as Field) as Bytes<32>;
+  const newTally = persistentHash<Bytes<64>>(tallyHash ++ targetBytes);
   tallyHash = disclose(newTally);
   
   // Mark as voted
@@ -215,7 +207,7 @@ export circuit castPrivateVote(
 // ─── FEATURE 2: THRESHOLD REVEAL ───
 
 export circuit revealTally(moderatorSecret: Bytes<32>): [] {
-  const secretCommitment = persistentHash<Vector<1, Bytes<32>>>([moderatorSecret]);
+  const secretCommitment = persistentHash<Bytes<32>>(moderatorSecret);
   assert(disclose(secretCommitment == moderatorCommitment), "Not moderator");
   assert(disclose(gamePhase == 2), "Not in voting phase");
   

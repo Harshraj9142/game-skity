@@ -1,16 +1,16 @@
-import { Dispatch, SetStateAction, useState } from "react";
+import { useState } from "react";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import * as Typography from "./ui/typography";
 import { Copy, Check } from "lucide-react";
 
 const RoomPicker = ({
-  setGameContract,
+  onEnterRoom,
 }: {
-  setGameContract: Dispatch<SetStateAction<string>>;
+  onEnterRoom: (contractAddress: string, autoJoin: boolean) => void;
 }) => {
   // Default to the deployed preprod contract
-  const DEFAULT_CONTRACT = "344d8ad330d47d56b8175c73e00fac279d196610a73e2621b110b28369a25f29";
+  const DEFAULT_CONTRACT = "476678147573d762835c63838cb217765e92c66e8490f063c29fcde67708bcb4";
   
   const [roomId, setRoomId] = useState("");
   const [copied, setCopied] = useState(false);
@@ -58,7 +58,7 @@ const RoomPicker = ({
     }
     
     console.log(`Joining room ${roomId} → Contract: ${contractAddress}`);
-    setGameContract(contractAddress);
+    onEnterRoom(contractAddress, true);
   };
 
   const handleCreateRoom = async () => {
@@ -69,7 +69,7 @@ const RoomPicker = ({
       const newRoomId = storeContract(contractAddress);
       
       setCreatedRoomId(newRoomId);
-      setGameContract(contractAddress);
+      onEnterRoom(contractAddress, true);
       
       console.log(`Created room ${newRoomId} → Contract: ${contractAddress}`);
     } catch (error) {
@@ -89,7 +89,7 @@ const RoomPicker = ({
   const handleUseDefaultRoom = () => {
     const defaultRoomId = DEFAULT_CONTRACT.slice(0, 8);
     setRoomId(defaultRoomId);
-    setGameContract(DEFAULT_CONTRACT);
+    onEnterRoom(DEFAULT_CONTRACT, true);
   };
 
   return (

@@ -7,15 +7,26 @@ import { ErrorBoundary } from "react-error-boundary";
 
 const Authenticated = () => {
   const [gameContract, setGameContract] = useState<string>("");
+  const [shouldAutoJoin, setShouldAutoJoin] = useState(false);
+
+  const handleEnterRoom = (contractAddress: string, autoJoin: boolean) => {
+    setShouldAutoJoin(autoJoin);
+    setGameContract(contractAddress);
+  };
 
   return (
     <div>
       <Navbar />
       {!gameContract ? (
-        <RoomPicker setGameContract={setGameContract} />
+        <RoomPicker onEnterRoom={handleEnterRoom} />
       ) : (
         <ErrorBoundary fallback={<p>there was an error. please try again.</p>}>
-          <InGameScreen gameContract={gameContract} setGameContract={setGameContract} />
+          <InGameScreen
+            gameContract={gameContract}
+            setGameContract={setGameContract}
+            shouldAutoJoin={shouldAutoJoin}
+            onAutoJoinHandled={() => setShouldAutoJoin(false)}
+          />
         </ErrorBoundary>
       )}
       <BottomBar />

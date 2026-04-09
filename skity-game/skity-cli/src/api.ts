@@ -98,7 +98,6 @@ export const joinContract = async (
 export const deploy = async (
   providers: GameProviders,
   privateState: GamePrivateState,
-  creator: Uint8Array,
   maxPlayers: bigint,
 ): Promise<DeployedGameContract> => {
   logger.info('Deploying game contract...');
@@ -106,7 +105,7 @@ export const deploy = async (
     compiledContract: gameCompiledContract,
     privateStateId: 'gamePrivateState',
     initialPrivateState: privateState,
-    args: [creator, maxPlayers],
+    args: [maxPlayers],
   });
   logger.info(`Deployed contract at address: ${gameContract.deployTxData.public.contractAddress}`);
   return gameContract;

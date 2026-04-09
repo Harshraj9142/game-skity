@@ -25,25 +25,6 @@ export const useGameContract = (contractAddress?: string) => {
     }
   }, [isConnected, providers, contractAddress, walletAddress, isContractConnected]);
 
-  const connectContract = useCallback(async () => {
-    if (!providers || !contractAddress || !walletAddress) return;
-    
-    setLoading(true);
-    setError(null);
-    
-    try {
-      await midnight.connectToGame(contractAddress, providers, walletAddress);
-      setIsContractConnected(true);
-      await refreshGameState();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to connect to contract';
-      setError(message);
-      console.error('Contract connection error:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [providers, contractAddress, walletAddress]);
-
   const refreshGameState = useCallback(async () => {
     try {
       const state = await midnight.getGameState();
@@ -55,13 +36,72 @@ export const useGameContract = (contractAddress?: string) => {
     }
   }, []);
 
+  const connectContract = useCallback(async () => {
+    if (!providers || !contractAddress || !walletAddress) return;
+    
+    setLoading(true);
+    setError(null);
+    
+    try {
+      await midnight.connectToGame(contractAddress, providers, walletAddress);
+      setIsContractConnected(true);
+      
+      // Get and store our derived key
+      try {
+        const derivedKey = await midnight.getDerivedPublicKey(walletAddress);
+        const storageKey = `player-key:${contractAddress}:${walletAddress}`;
+        
+        // Check if we already have a stored key
+        const existingKey = localStorage.getItem(storageKey);
+        if (!existingKey) {
+          localStorage.setItem(storageKey, derivedKey);
+          console.log('💾 Stored derived key on connection:', derivedKey);
+        } else {
+          console.log('🔑 Found existing derived key:', existingKey);
+          // Verify they match
+          if (existingKey.toLowerCase() !== derivedKey.toLowerCase()) {
+            console.warn('⚠️ Stored key does not match derived key!');
+            localStorage.setItem(storageKey, derivedKey);
+          }
+        }
+      } catch (keyError) {
+        console.warn('⚠️ Could not get derived key on connection:', keyError);
+        // Continue anyway - key will be generated when joining
+      }
+      
+      await refreshGameState();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to connect to contract';
+      setError(message);
+      console.error('Contract connection error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [providers, contractAddress, walletAddress, refreshGameState]);
+
   // Wrapped contract functions that auto-refresh state
   const joinGame = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      await midnight.joinGame();
+      if (!walletAddress) throw new Error('Wallet address not available');
+      
+      const derivedKey = await midnight.joinGame(walletAddress);
+      
+      // Store the derived key in localStorage for this wallet
+      if (contractAddress) {
+        const storageKey = `player-key:${contractAddress}:${walletAddress}`;
+        localStorage.setItem(storageKey, derivedKey);
+        console.log('💾 Stored derived key for wallet:', walletAddress);
+        console.log('🔑 Derived key:', derivedKey);
+      }
+      
+      // Wait a moment for the transaction to be indexed
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
       await refreshGameState();
+      
+      return derivedKey;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to join game';
       setError(message);
@@ -69,7 +109,7 @@ export const useGameContract = (contractAddress?: string) => {
     } finally {
       setLoading(false);
     }
-  }, [refreshGameState]);
+  }, [refreshGameState, walletAddress, contractAddress]);
 
   const initGame = useCallback(async (roleAssignments: number[], myRole: number) => {
     setLoading(true);

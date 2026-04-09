@@ -25,6 +25,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      "@framed/contract": path.resolve(__dirname, "./contract/src/index.ts"),
       process: "process/browser",
       stream: "stream-browserify",
       util: "util",

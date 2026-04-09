@@ -3,7 +3,8 @@
     "esModuleInterop": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@framed/contract": ["./contract/src/index.ts"]
     },
     "target": "ES2020",
     "useDefineForClassFields": true,

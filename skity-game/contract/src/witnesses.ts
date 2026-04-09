@@ -30,6 +30,7 @@ export interface GamePrivateState {
 /**
  * Generate a deterministic secret key from wallet address
  * This ensures each wallet has a unique but consistent secret key
+ * Note: This is synchronous to match the witness function signature
  */
 function generateSecretKey(walletAddress?: string): Uint8Array {
   if (!walletAddress) {
@@ -41,11 +42,11 @@ function generateSecretKey(walletAddress?: string): Uint8Array {
   const encoder = new TextEncoder();
   const data = encoder.encode(`framed-sk:${walletAddress}`);
   
-  // Use crypto.subtle to hash the wallet address
-  // For now, use a simple approach - in production, use proper key derivation
+  // Use a deterministic mixing function to generate 32 bytes
   const key = new Uint8Array(32);
   for (let i = 0; i < 32; i++) {
-    key[i] = data[i % data.length] ^ (i * 7); // Simple mixing
+    // Mix the input data with position-dependent values
+    key[i] = data[i % data.length] ^ ((i * 7 + 13) & 0xff);
   }
   
   return key;
@@ -54,23 +55,18 @@ function generateSecretKey(walletAddress?: string): Uint8Array {
 export const witnesses: Witnesses<GamePrivateState> = {
   /**
    * Returns the player's local secret key (never revealed on-chain).
-   * Uses the secret key from private state, or generates one if not present.
+   * Generates a deterministic key each time - does not store in private state.
    */
   localSecretKey(
     context: WitnessContext<Ledger, GamePrivateState>,
   ): [GamePrivateState, Uint8Array] {
-    // Use stored secret key if available, otherwise generate a new one
-    const secretKey = context.privateState.secretKey || generateSecretKey();
+    console.log('🔑 localSecretKey witness called');
     
-    // If we generated a new key, store it in private state
-    if (!context.privateState.secretKey) {
-      const newState: GamePrivateState = {
-        ...context.privateState,
-        secretKey,
-      };
-      return [newState, secretKey];
-    }
+    // Always generate the same deterministic key for this wallet
+    // This ensures consistency across calls without needing to store it
+    const secretKey = generateSecretKey();
     
+    console.log('   Generated deterministic secret key');
     return [context.privateState, secretKey];
   },
 
@@ -81,20 +77,44 @@ export const witnesses: Witnesses<GamePrivateState> = {
   localRole(
     context: WitnessContext<Ledger, GamePrivateState>,
   ): [GamePrivateState, bigint] {
+    console.log('👤 localRole witness called');
+    console.log('   Role:', context.privateState.role);
     return [context.privateState, BigInt(context.privateState.role)];
   },
 
   /**
    * Returns the list of events this player has witnessed (up to 10).
-   * The Compact Vector<10, WitnessEvent> is satisfied by providing an array.
+   * The Compact Vector<10, WitnessEvent> requires exactly 10 elements.
    */
   localWitnessedEvents(
     context: WitnessContext<Ledger, GamePrivateState>,
   ): [GamePrivateState, WitnessEvent[]] {
-    const events: WitnessEvent[] = context.privateState.witnessedEvents.map((e) => ({
-      location: e.location,
-      roundId: BigInt(e.roundId),
-    }));
+    console.log('👁️ localWitnessedEvents witness called');
+    
+    const witnessedEvents = context.privateState.witnessedEvents || [];
+    console.log('   Witnessed events count:', witnessedEvents.length);
+    
+    // Create an array of exactly 10 events
+    // Fill with actual events first, then pad with empty events
+    const events: WitnessEvent[] = [];
+    
+    for (let i = 0; i < 10; i++) {
+      if (i < witnessedEvents.length) {
+        // Use actual witnessed event
+        events.push({
+          location: witnessedEvents[i].location,
+          roundId: BigInt(witnessedEvents[i].roundId),
+        });
+      } else {
+        // Pad with empty event (all zeros)
+        events.push({
+          location: new Uint8Array(16), // 16 bytes of zeros
+          roundId: BigInt(0),
+        });
+      }
+    }
+    
+    console.log('   Returning 10 events (padded)');
     return [context.privateState, events];
   },
 
@@ -106,6 +126,9 @@ export const witnesses: Witnesses<GamePrivateState> = {
     context: WitnessContext<Ledger, GamePrivateState>,
     target: bigint,
   ): [GamePrivateState, []] {
+    console.log('🗳️ storeVoteTarget witness called');
+    console.log('   Target:', target);
+    
     const newState: GamePrivateState = {
       ...context.privateState,
       myVote: Number(target),

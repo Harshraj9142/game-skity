@@ -1,6 +1,14 @@
 import { Button } from "@/components/ui/button";
 import * as Typography from "@/components/ui/typography";
-import React, { useState, useEffect, SetStateAction, Dispatch } from "react";
+import React, {
+  useState,
+  useEffect,
+  SetStateAction,
+  Dispatch,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
 import { ErrorBoundary } from "react-error-boundary";
 
 import { GamePhase, PlayerRole } from "@/types";
@@ -19,10 +27,18 @@ import { AlertsList } from "./in-game/components/AlertsList";
 
 // Effects
 import { ConfettiEffect } from "@/components/effects/ConfettiEffect";
-import { showToast, ToastProvider } from "@/components/effects/ToastNotifications";
+import {
+  showToast,
+  ToastProvider,
+} from "@/components/effects/ToastNotifications";
 import { GameLoadingSkeleton } from "@/components/effects/LoadingSkeleton";
 
-export const PLAYER_NAMES = ["Soup Enjoyer", "Pineapple Guy", "Zippy", "Dizzy Dan"];
+export const PLAYER_NAMES = [
+  "Soup Enjoyer",
+  "Pineapple Guy",
+  "Zippy",
+  "Dizzy Dan",
+];
 
 export interface Player {
   action: boolean;
@@ -36,13 +52,17 @@ export interface Player {
 const InGameScreen = ({
   gameContract,
   setGameContract,
+  shouldAutoJoin,
+  onAutoJoinHandled,
 }: {
   gameContract: string;
   setGameContract: Dispatch<SetStateAction<string>>;
+  shouldAutoJoin?: boolean;
+  onAutoJoinHandled?: () => void;
 }) => {
-  const { isConnected, shieldedAddress } = useWallet();
+  const { isConnected, walletAddress } = useWallet();
   const { chatsOpenState } = React.useContext(ChatContext);
-  
+
   // Use the game contract hook
   const {
     isContractConnected,
@@ -57,49 +77,56 @@ const InGameScreen = ({
     triggerSabotage,
     deactivateSabotage,
     viewRole,
-    advanceToVoting,
     startNewRound,
     refreshGameState,
   } = useGameContract(gameContract);
 
   const [playerRole, setPlayerRole] = useState<PlayerRole>(PlayerRole.Unknown);
   const [loadingButtons, setLoadingButtons] = useState<boolean>(false);
-
-  // Poll contract state every 3 seconds
-  useEffect(() => {
-    if (!isContractConnected) return;
-    
-    const interval = setInterval(() => {
-      refreshGameState();
-    }, 3000);
-    
-    return () => clearInterval(interval);
-  }, [isContractConnected, refreshGameState]);
+  const [hasJoinedThisSession, setHasJoinedThisSession] = React.useState(false);
+  const autoJoinAttemptedRef = useRef(false);
 
   // Extract data from contract state
-  const gamePhase = gameState ? Number(gameState.gamePhase) : GamePhase.WaitingForPlayers;
+  const gamePhase = gameState
+    ? Number(gameState.gamePhase)
+    : GamePhase.WaitingForPlayers;
   const currentRound = gameState ? Number(gameState.roundCounter) : 1;
   const sabotageActive = gameState?.sabotageActive || false;
   const sabotageUsed = gameState?.sabotageUsed || false;
   const playerCount = gameState ? Number(gameState.playerCount) : 0;
   const maxPlayers = gameState ? Number(gameState.maxPlayers) : 4;
 
-  // Convert contract players Map to array
-  const players: Player[] = [];
-  if (gameState?.players) {
-    let index = 0;
-    for (const [address, record] of gameState.players) {
-      players.push({
-        id: bytesToHex(address),
-        address: address,
-        alive: record.isAlive,
-        action: record.hasActed,
-        vote: record.hasVoted,
-        position: index,
-      });
-      index++;
+  // Convert contract players to array using playerAddresses for correct ordering
+  const players = useMemo(() => {
+    const nextPlayers: Player[] = [];
+
+    if (gameState?.playerAddresses && gameState?.players) {
+      // Iterate through playerAddresses to get players in order
+      for (const [index, address] of gameState.playerAddresses) {
+        if (gameState.players.member(address)) {
+          const record = gameState.players.lookup(address);
+          nextPlayers.push({
+            id: bytesToHex(address),
+            address,
+            alive: record.isAlive,
+            action: record.hasActed,
+            vote: record.hasVoted,
+            position: Number(index),
+          });
+        }
+      }
     }
-  }
+
+    return nextPlayers;
+  }, [gameState]);
+
+  console.log("📊 Game state player count:", playerCount);
+  console.log("📊 Players array length:", players.length);
+  console.log(
+    "📊 Player addresses map size:",
+    gameState?.playerAddresses?.size() || 0,
+  );
+  console.log("📊 Players map size:", gameState?.players?.size() || 0);
 
   // Convert alerts Map to array
   const alerts: Array<{ id: number; location: number; roundId: number }> = [];
@@ -113,12 +140,66 @@ const InGameScreen = ({
     }
   }
 
+  // Get the stored derived public key for this wallet
+  const getStoredDerivedKey = (): string | null => {
+    if (!walletAddress || !gameContract) return null;
+    const storageKey = `player-key:${gameContract}:${walletAddress}`;
+    return localStorage.getItem(storageKey);
+  };
+
+  const storedDerivedKey = getStoredDerivedKey();
+
   // Check if current user is in the game
-  const playerIsJoined = players.some((p) => p.id.toLowerCase() === shieldedAddress?.toLowerCase());
-  const currentPlayer = players.find((p) => p.id.toLowerCase() === shieldedAddress?.toLowerCase());
+  const currentPlayer = players.find((p) => {
+    // Match with stored derived key (most reliable)
+    if (storedDerivedKey) {
+      return p.id.toLowerCase() === storedDerivedKey.toLowerCase();
+    }
+    return false;
+  });
+
+  const playerIsJoined = !!currentPlayer || hasJoinedThisSession;
   const playerHasAction = currentPlayer?.action || false;
   const playerHasVoted = currentPlayer?.vote || false;
   const playerId = currentPlayer?.position.toString() || null;
+
+  // Poll contract state every 3 seconds
+  useEffect(() => {
+    if (!isContractConnected) return;
+
+    const interval = setInterval(() => {
+      refreshGameState();
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [isContractConnected, refreshGameState]);
+
+  // Log player list for debugging
+  useEffect(() => {
+    if (players.length > 0) {
+      console.log("👥 Current players in game:", players.length);
+      console.log("   My wallet address:", walletAddress);
+      console.log("   My stored derived key:", storedDerivedKey);
+      console.log(
+        "   Player IDs in game:",
+        players.map((p) => ({
+          position: p.position,
+          id: p.id,
+          alive: p.alive,
+        })),
+      );
+      console.log("   Am I joined?", playerIsJoined);
+      console.log("   Current player found:", currentPlayer ? "Yes" : "No");
+      if (currentPlayer) {
+        console.log("   My position:", currentPlayer.position);
+        console.log("   My status:", currentPlayer.alive ? "Alive" : "Dead");
+      }
+    }
+  }, [players, walletAddress, storedDerivedKey, playerIsJoined, currentPlayer]);
+
+  useEffect(() => {
+    autoJoinAttemptedRef.current = false;
+  }, [gameContract]);
 
   const roomId = gameContract.slice(0, 8);
   const isChatOpen = chatsOpenState[roomId];
@@ -127,10 +208,24 @@ const InGameScreen = ({
     : "w-11/12 h-11/12 sm:w-full sm:h-auto mt-20 sm:mt-0 transition-all duration-300";
 
   // Handler functions
-  const handleJoinGame = async () => {
+  const handleJoinGame = useCallback(async () => {
     setLoadingButtons(true);
     try {
-      await joinGame();
+      const derivedKey = await joinGame();
+
+      // Store the derived key immediately
+      if (walletAddress && gameContract) {
+        const storageKey = `player-key:${gameContract}:${walletAddress}`;
+        localStorage.setItem(storageKey, derivedKey);
+        console.log("💾 Stored derived key:", derivedKey);
+      }
+
+      setHasJoinedThisSession(true);
+      console.log("🎉 Successfully joined! Your derived key:", derivedKey);
+
+      // Refresh state to see ourselves in the player list
+      await refreshGameState();
+
       ConfettiEffect.playerJoined();
       showToast.playerJoined("Player");
     } catch (error) {
@@ -139,7 +234,31 @@ const InGameScreen = ({
     } finally {
       setLoadingButtons(false);
     }
-  };
+  }, [joinGame, walletAddress, gameContract, refreshGameState]);
+
+  useEffect(() => {
+    if (!shouldAutoJoin || autoJoinAttemptedRef.current) return;
+    if (
+      !isContractConnected ||
+      contractLoading ||
+      playerIsJoined ||
+      loadingButtons
+    )
+      return;
+
+    autoJoinAttemptedRef.current = true;
+    void handleJoinGame().finally(() => {
+      onAutoJoinHandled?.();
+    });
+  }, [
+    shouldAutoJoin,
+    isContractConnected,
+    contractLoading,
+    playerIsJoined,
+    loadingButtons,
+    handleJoinGame,
+    onAutoJoinHandled,
+  ]);
 
   const handleInitGame = async () => {
     setLoadingButtons(true);
@@ -147,10 +266,10 @@ const InGameScreen = ({
       // Randomize roles: 0=Citizen, 1=Mafia, 2=Doctor, 3=Detective
       const roles = [0, 1, 2, 3];
       const shuffled = roles.sort(() => Math.random() - 0.5);
-      
+
       // Determine my role (host is player 0)
       const myRole = shuffled[0];
-      
+
       await initGame(shuffled, myRole);
       setPlayerRole(myRole as PlayerRole);
       ConfettiEffect.gameStart();
@@ -249,18 +368,6 @@ const InGameScreen = ({
     } catch (error) {
       console.error("Failed to start new round:", error);
       showToast.error("Failed to start new round");
-    } finally {
-      setLoadingButtons(false);
-    }
-  };
-
-  const handleAdvanceToVoting = async () => {
-    setLoadingButtons(true);
-    try {
-      await advanceToVoting();
-    } catch (error) {
-      console.error("Failed to advance to voting:", error);
-      showToast.error("Failed to advance phase");
     } finally {
       setLoadingButtons(false);
     }
@@ -368,7 +475,9 @@ const InGameScreen = ({
 
           {gamePhase === GamePhase.ThresholdReveal && (
             <div className="text-center py-12">
-              <Typography.TypographyH2>Revealing Results...</Typography.TypographyH2>
+              <Typography.TypographyH2>
+                Revealing Results...
+              </Typography.TypographyH2>
               <Typography.TypographyP className="mt-4">
                 Counting votes and determining elimination
               </Typography.TypographyP>
@@ -378,14 +487,22 @@ const InGameScreen = ({
           {gamePhase === GamePhase.RoundComplete && (
             <RevealPhase
               players={players}
-              eliminatedPlayer={gameState?.eliminatedPlayer ? bytesToHex(gameState.eliminatedPlayer) : null}
+              eliminatedPlayer={
+                gameState?.eliminatedPlayer
+                  ? bytesToHex(gameState.eliminatedPlayer)
+                  : null
+              }
               onStartNewRound={handleStartNewRound}
               isLoading={loadingButtons}
             />
           )}
 
           {playerIsJoined && playerId && (
-            <SidePanel roomId={roomId} player_id={playerId} hasJoined={playerIsJoined} />
+            <SidePanel
+              roomId={roomId}
+              player_id={playerId}
+              hasJoined={playerIsJoined}
+            />
           )}
         </ErrorBoundary>
       </div>
@@ -395,7 +512,12 @@ const InGameScreen = ({
 
 // Helper: Convert Uint8Array to hex string
 function bytesToHex(bytes: Uint8Array): string {
-  return '0x' + Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return (
+    "0x" +
+    Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")
+  );
 }
 
 export default InGameScreen;
