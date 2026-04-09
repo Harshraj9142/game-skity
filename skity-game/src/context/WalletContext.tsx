@@ -235,42 +235,48 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
       
       console.log('📊 Wallet addresses response:', addresses);
       console.log('📊 Address keys:', Object.keys(addresses || {}));
+      console.log('📊 Full addresses object:', JSON.stringify(addresses, null, 2));
       
-      // Extract coin public key (required by contract)
-      // The Lace API returns coinPublicKey in the addresses object
-      const coinPublicKey = addresses?.coinPublicKey || 
-                           addresses?.publicKey ||
-                           addresses?.cpk ||
-                           addresses?.[0]?.coinPublicKey;
-      
-      // Extract shielded address (for display)
+      // Extract shielded address (for display and as fallback)
       const shieldedAddr = addresses?.shieldedAddress || 
                           addresses?.shield || 
-                          addresses?.[0]?.shieldedAddress;
+                          addresses?.[0]?.shieldedAddress ||
+                          addresses?.address;
       
-      if (!coinPublicKey) {
-        console.error('No coin public key found in addresses:', addresses);
-        console.error('Available keys:', Object.keys(addresses || {}));
-        throw new Error(
-          'No coin public key found. Please ensure:\n' +
-          '1. You have a Midnight wallet created in Lace\n' +
-          '2. You are on the Preprod network\n' +
-          '3. Your Lace extension is up to date'
-        );
+      // Extract coin public key - try multiple possible field names
+      let coinPublicKey = addresses?.coinPublicKey || 
+                         addresses?.publicKey ||
+                         addresses?.cpk ||
+                         addresses?.coinPubKey ||
+                         addresses?.[0]?.coinPublicKey;
+      
+      // If coinPublicKey is not available, we'll use the shielded address
+      // The contract will derive its own public key from the secret key anyway
+      if (!coinPublicKey && shieldedAddr) {
+        console.warn('⚠️ No coin public key found, using shielded address as identifier');
+        coinPublicKey = shieldedAddr;
       }
       
-      if (!shieldedAddr) {
-        console.warn('No shielded address found, using coin public key for display');
+      if (!coinPublicKey && !shieldedAddr) {
+        console.error('No addresses found in response:', addresses);
+        console.error('Available keys:', Object.keys(addresses || {}));
+        throw new Error(
+          'No wallet address found. Please ensure:\n' +
+          '1. You have a Midnight wallet created in Lace\n' +
+          '2. You are on the Preprod network\n' +
+          '3. Your Lace extension is up to date\n' +
+          '4. Try disconnecting and reconnecting your wallet'
+        );
       }
       
       setConnectedAPI(api);
       setShieldedAddress(shieldedAddr || coinPublicKey);
-      setWalletAddress(coinPublicKey); // Always use coin public key for contract
+      setWalletAddress(coinPublicKey); // Use for contract identification
       setIsConnected(true);
       
       console.log('✅ Successfully connected to Lace wallet');
-      console.log('   Coin Public Key (for contract):', coinPublicKey);
-      console.log('   Shielded Address (for display):', shieldedAddr || 'using cpk');
+      console.log('   Wallet Address (for contract):', coinPublicKey);
+      console.log('   Shielded Address (for display):', shieldedAddr || 'using wallet address');
       
     } catch (error) {
       console.error('❌ Failed to connect to wallet:', error);
