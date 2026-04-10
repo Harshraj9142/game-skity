@@ -12,19 +12,26 @@
  * WitnessContext that the Compact runtime supplies.
  */
 
-import type { WitnessContext } from '@midnight-ntwrk/compact-runtime';
-import type { Ledger, WitnessEvent, Witnesses } from './managed/game/contract/index.js';
+import type { WitnessContext } from "@midnight-ntwrk/compact-runtime";
+import type {
+  Ledger,
+  WitnessEvent,
+  Witnesses,
+} from "./managed/game/contract/index.js";
 
 /** Shape of the private state stored locally by each player. */
 export interface GamePrivateState {
+  /** Player's assigned secret key for key derivation (hex string). */
+  readonly secretKey?: string;
   /** Player's assigned role: 0=Citizen 1=Mafia 2=Doctor 3=Detective */
   readonly role: number;
   /** Index of the player this user voted to eliminate (0-based). */
   readonly myVote: number;
   /** Events the player has personally witnessed. */
-  readonly witnessedEvents: ReadonlyArray<{ location: Uint8Array; roundId: number }>;
-  /** Player's unique secret key (derived from wallet) */
-  readonly secretKey?: Uint8Array;
+  readonly witnessedEvents: ReadonlyArray<{
+    location: string;
+    roundId: number;
+  }>;
 }
 
 /**
@@ -37,19 +44,31 @@ function generateSecretKey(walletAddress?: string): Uint8Array {
     // Fallback to random key if no wallet address
     return crypto.getRandomValues(new Uint8Array(32));
   }
-  
+
   // Create a deterministic key from wallet address
   const encoder = new TextEncoder();
   const data = encoder.encode(`framed-sk:${walletAddress}`);
-  
+
   // Use a deterministic mixing function to generate 32 bytes
   const key = new Uint8Array(32);
   for (let i = 0; i < 32; i++) {
     // Mix the input data with position-dependent values
     key[i] = data[i % data.length] ^ ((i * 7 + 13) & 0xff);
   }
-  
+
   return key;
+}
+
+/**
+ * Helper: Convert hex string to Uint8Array
+ */
+function hexToBytes(hex: string): Uint8Array {
+  const cleanHex = hex.startsWith("0x") ? hex.slice(2) : hex;
+  const bytes = new Uint8Array(cleanHex.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(cleanHex.substring(i * 2, i * 2 + 2), 16);
+  }
+  return bytes;
 }
 
 export const witnesses: Witnesses<GamePrivateState> = {
@@ -60,13 +79,20 @@ export const witnesses: Witnesses<GamePrivateState> = {
   localSecretKey(
     context: WitnessContext<Ledger, GamePrivateState>,
   ): [GamePrivateState, Uint8Array] {
-    console.log('🔑 localSecretKey witness called');
-    
-    // Always generate the same deterministic key for this wallet
-    // This ensures consistency across calls without needing to store it
-    const secretKey = generateSecretKey();
-    
-    console.log('   Generated deterministic secret key');
+    console.log("🔑 localSecretKey witness called");
+
+    // Check if secret key exists in private state
+    const secretKeyHex = context.privateState.secretKey;
+    let secretKey: Uint8Array;
+
+    if (!secretKeyHex) {
+      console.warn("   Secret key not in private state, generating random");
+      secretKey = generateSecretKey();
+    } else {
+      console.log("   Using secret key from private state");
+      secretKey = hexToBytes(secretKeyHex);
+    }
+
     return [context.privateState, secretKey];
   },
 
@@ -77,8 +103,8 @@ export const witnesses: Witnesses<GamePrivateState> = {
   localRole(
     context: WitnessContext<Ledger, GamePrivateState>,
   ): [GamePrivateState, bigint] {
-    console.log('👤 localRole witness called');
-    console.log('   Role:', context.privateState.role);
+    console.log("👤 localRole witness called");
+    console.log("   Role:", context.privateState.role);
     return [context.privateState, BigInt(context.privateState.role)];
   },
 
@@ -89,20 +115,20 @@ export const witnesses: Witnesses<GamePrivateState> = {
   localWitnessedEvents(
     context: WitnessContext<Ledger, GamePrivateState>,
   ): [GamePrivateState, WitnessEvent[]] {
-    console.log('👁️ localWitnessedEvents witness called');
-    
+    console.log("👁️ localWitnessedEvents witness called");
+
     const witnessedEvents = context.privateState.witnessedEvents || [];
-    console.log('   Witnessed events count:', witnessedEvents.length);
-    
+    console.log("   Witnessed events count:", witnessedEvents.length);
+
     // Create an array of exactly 10 events
     // Fill with actual events first, then pad with empty events
     const events: WitnessEvent[] = [];
-    
+
     for (let i = 0; i < 10; i++) {
       if (i < witnessedEvents.length) {
         // Use actual witnessed event
         events.push({
-          location: witnessedEvents[i].location,
+          location: hexToBytes(witnessedEvents[i].location),
           roundId: BigInt(witnessedEvents[i].roundId),
         });
       } else {
@@ -113,8 +139,8 @@ export const witnesses: Witnesses<GamePrivateState> = {
         });
       }
     }
-    
-    console.log('   Returning 10 events (padded)');
+
+    console.log("   Returning 10 events (padded)");
     return [context.privateState, events];
   },
 
@@ -126,9 +152,9 @@ export const witnesses: Witnesses<GamePrivateState> = {
     context: WitnessContext<Ledger, GamePrivateState>,
     target: bigint,
   ): [GamePrivateState, []] {
-    console.log('🗳️ storeVoteTarget witness called');
-    console.log('   Target:', target);
-    
+    console.log("🗳️ storeVoteTarget witness called");
+    console.log("   Target:", target);
+
     const newState: GamePrivateState = {
       ...context.privateState,
       myVote: Number(target),

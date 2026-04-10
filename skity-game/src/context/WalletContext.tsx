@@ -18,9 +18,16 @@ import { FetchZkConfigProvider } from "@midnight-ntwrk/midnight-js-fetch-zk-conf
 import { httpClientProofProvider } from "@midnight-ntwrk/midnight-js-http-client-proof-provider";
 import {
   createProofProvider,
+  type MidnightProvider as MidnightTxProvider,
   type MidnightProviders,
   type ProofProvider,
+  type UnboundTransaction,
+  type WalletProvider as MidnightWalletProvider,
 } from "@midnight-ntwrk/midnight-js-types";
+import {
+  Transaction,
+  type FinalizedTransaction,
+} from "@midnight-ntwrk/ledger-v8";
 import type { GamePrivateState } from "@framed/contract";
 
 export type MidnightGameProviders = MidnightProviders<
@@ -53,6 +60,39 @@ interface WalletProviderProps {
   children: React.ReactNode;
 }
 
+type InjectedWalletAPI = {
+  connect?: (networkId: string) => Promise<ConnectedAPI>;
+  enable?: () => Promise<ConnectedAPI>;
+  isEnabled?: () => Promise<boolean>;
+};
+
+type MidnightWindow = Window & {
+  midnight?: Record<string, unknown> & {
+    mnLace?: InjectedWalletAPI;
+  };
+};
+
+type WalletAddressInfo = {
+  shieldedAddress?: string;
+  shield?: string;
+  address?: string;
+  coinPublicKey?: string;
+  shieldedCoinPublicKey?: string;
+  publicKey?: string;
+  cpk?: string;
+  coinPubKey?: string;
+  shieldedEncryptionPublicKey?: string;
+  encryptionPublicKey?: string;
+  encPublicKey?: string;
+  epk?: string;
+  0?: WalletAddressInfo;
+};
+
+type LegacyConnectedAPI = ConnectedAPI & {
+  getAddresses?: () => Promise<WalletAddressInfo>;
+  state?: () => Promise<{ addresses?: WalletAddressInfo } | WalletAddressInfo>;
+};
+
 const normalizeServiceUrl = (value?: string | null): string | undefined => {
   if (!value) return undefined;
 
@@ -63,6 +103,67 @@ const normalizeServiceUrl = (value?: string | null): string | undefined => {
 
   return normalized || undefined;
 };
+
+const bytesToHex = (bytes: Uint8Array): string =>
+  Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+
+const bytesToBase64 = (bytes: Uint8Array): string => {
+  let binary = "";
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return btoa(binary);
+};
+
+const deserializeBytes = (value: string): Uint8Array => {
+  const trimmed = value.trim();
+  const cleanHex = trimmed.startsWith("0x") ? trimmed.slice(2) : trimmed;
+
+  if (/^[0-9a-fA-F]+$/.test(cleanHex) && cleanHex.length % 2 === 0) {
+    const bytes = new Uint8Array(cleanHex.length / 2);
+    for (let i = 0; i < bytes.length; i++) {
+      bytes[i] = parseInt(cleanHex.slice(i * 2, i * 2 + 2), 16);
+    }
+    return bytes;
+  }
+
+  const decoded = atob(trimmed);
+  return Uint8Array.from(decoded, (char) => char.charCodeAt(0));
+};
+
+const serializeTransaction = (
+  tx: { serialize(): Uint8Array },
+  encoding: "hex" | "base64" = "hex",
+): string => {
+  const bytes = tx.serialize();
+  return encoding === "hex" ? bytesToHex(bytes) : bytesToBase64(bytes);
+};
+
+const logUnknownError = (label: string, error: unknown) => {
+  if (error instanceof Error) {
+    const errorWithCause = error as Error & { cause?: unknown };
+    console.error(label, error);
+    console.error("   name:", error.name);
+    console.error("   message:", error.message);
+    console.error("   stack:", error.stack);
+    console.error("   cause:", errorWithCause.cause);
+    return;
+  }
+
+  console.error(label, error);
+};
+
+const deserializeBalancedTransaction = (
+  serializedTx: string,
+): FinalizedTransaction =>
+  Transaction.deserialize(
+    "signature",
+    "proof",
+    "binding",
+    deserializeBytes(serializedTx),
+  ) as FinalizedTransaction;
 
 export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
   const [isConnected, setIsConnected] = useState(false);
@@ -91,20 +192,15 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
     [],
   );
 
-  // Proof provider - use preprod proof server
+  // Proof provider - use local proof server
   const proofProvider = useMemo(() => {
-    if (walletProofProvider) {
-      return walletProofProvider;
-    }
+    // Use local proof server for development
+    const resolvedProofServerUri = "http://localhost:6300";
 
-    const proofServerUri = normalizeServiceUrl(serviceConfig?.proverServerUri);
-    const resolvedProofServerUri =
-      proofServerUri || "https://prover.preprod.midnight.network";
-
-    console.log("🧪 Using HTTP proof server:", resolvedProofServerUri);
+    console.log("🧪 Using local proof server:", resolvedProofServerUri);
 
     return httpClientProofProvider(resolvedProofServerUri, zkConfigProvider);
-  }, [walletProofProvider, serviceConfig, zkConfigProvider]);
+  }, [zkConfigProvider]);
 
   // Private state provider
   const privateStateProvider = useMemo(
@@ -131,7 +227,7 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
   );
 
   // Wallet provider (wraps Lace API)
-  const walletProvider = useMemo(() => {
+  const walletProvider = useMemo<MidnightWalletProvider | null>(() => {
     if (!connectedAPI) return null;
 
     return {
@@ -142,28 +238,96 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
       getEncryptionPublicKey: () => {
         return encryptionPublicKey || "";
       },
-      balanceTx: async (tx: any, ttl?: Date) => {
-        // Use Lace's balanceUnsealedTransaction for contract calls
-        const result = await connectedAPI.balanceUnsealedTransaction(tx);
-        return result.tx;
+      balanceTx: async (tx: UnboundTransaction) => {
+        console.log("🧾 Balancing transaction via Lace");
+        console.log("   Unbound tx bytes:", tx.serialize().length);
+        console.log("   Unbound tx first 100 bytes:", Array.from(tx.serialize().slice(0, 100)).map(b => b.toString(16).padStart(2, '0')).join(''));
+
+        const encodings: Array<"hex" | "base64"> = ["hex", "base64"];
+        let lastError: unknown;
+
+        for (const encoding of encodings) {
+          const serializedTx = serializeTransaction(tx, encoding);
+          console.log(`   Trying ${encoding} encoding`);
+          console.log("   Serialized tx length:", serializedTx.length);
+          console.log("   Serialized tx first 200 chars:", serializedTx.substring(0, 200));
+
+          try {
+            const result =
+              await connectedAPI.balanceUnsealedTransaction(serializedTx);
+
+            console.log("✅ Lace balanced transaction");
+            console.log("   Encoding:", encoding);
+            console.log("   Balanced tx string length:", result.tx.length);
+
+            const finalizedTx = deserializeBalancedTransaction(result.tx);
+            console.log(
+              "   Balanced tx identifiers:",
+              finalizedTx.identifiers(),
+            );
+            return finalizedTx;
+          } catch (error) {
+            lastError = error;
+            logUnknownError(
+              `❌ Failed while balancing transaction in Lace using ${encoding}:`,
+              error,
+            );
+          }
+        }
+
+        throw lastError;
       },
     };
   }, [connectedAPI, walletAddress, encryptionPublicKey]);
 
   // Midnight provider (wraps Lace API)
-  const midnightProvider = useMemo(() => {
+  const midnightProvider = useMemo<MidnightTxProvider | null>(() => {
     if (!connectedAPI) return null;
 
     return {
-      submitTx: async (tx: any): Promise<string> => {
+      submitTx: async (tx: FinalizedTransaction): Promise<string> => {
         try {
-          // submitTransaction returns void, but we need to return a transaction ID
-          // In practice, the transaction is submitted and we can track it via indexer
-          await connectedAPI.submitTransaction(tx);
-          // Return a placeholder ID - in production, query indexer for actual tx ID
-          return "tx-submitted-" + Date.now();
+          const identifiers = tx.identifiers();
+
+          console.log("📤 Submitting transaction via Lace");
+          console.log("   Finalized tx bytes:", tx.serialize().length);
+          console.log("   Tx identifiers:", identifiers);
+
+          const encodings: Array<"hex" | "base64"> = ["hex", "base64"];
+          let lastError: unknown;
+
+          for (const encoding of encodings) {
+            const serializedTx = serializeTransaction(tx, encoding);
+            console.log(`   Trying ${encoding} encoding`);
+            console.log("   Serialized tx length:", serializedTx.length);
+
+            try {
+              await connectedAPI.submitTransaction(serializedTx);
+
+              const [txId] = identifiers;
+              if (!txId) {
+                throw new Error(
+                  "Wallet submitted transaction without an identifier",
+                );
+              }
+
+              console.log("✅ Lace accepted transaction");
+              console.log("   Encoding:", encoding);
+              console.log("   Tracking tx id:", txId);
+
+              return txId;
+            } catch (error) {
+              lastError = error;
+              logUnknownError(
+                `❌ Failed to submit transaction via Lace using ${encoding}:`,
+                error,
+              );
+            }
+          }
+
+          throw lastError;
         } catch (error) {
-          console.error("Failed to submit transaction:", error);
+          logUnknownError("Failed to submit transaction:", error);
           throw error;
         }
       },
@@ -174,19 +338,25 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
   const providers = useMemo<MidnightGameProviders | null>(() => {
     if (!walletProvider || !midnightProvider) return null;
 
+    // Use wallet's proof provider if available (matches wallet version),
+    // otherwise use HTTP proof provider
+    const selectedProofProvider = walletProofProvider ?? proofProvider;
+    console.log("🔧 Using proof provider:", walletProofProvider ? "wallet" : "HTTP");
+
     return {
       privateStateProvider,
       publicDataProvider,
       zkConfigProvider,
-      proofProvider,
-      walletProvider: walletProvider as any,
-      midnightProvider: midnightProvider as any,
-    } as MidnightGameProviders;
+      proofProvider: selectedProofProvider,
+      walletProvider,
+      midnightProvider,
+    };
   }, [
     privateStateProvider,
     publicDataProvider,
     zkConfigProvider,
     proofProvider,
+    walletProofProvider,
     walletProvider,
     midnightProvider,
   ]);
@@ -203,7 +373,7 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
       await new Promise((resolve) => setTimeout(resolve, 100));
 
       // Check if midnight object exists
-      const midnightObj = (window as any).midnight;
+      const midnightObj = (window as MidnightWindow).midnight;
       if (typeof window === "undefined" || !midnightObj) {
         throw new Error(
           "Lace wallet not found. Please install the Lace extension and refresh the page.",
@@ -213,7 +383,7 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
       console.log("window.midnight:", midnightObj);
 
       // Try multiple approaches to find the wallet API
-      let walletAPI: any = null;
+      let walletAPI: InjectedWalletAPI | null = null;
       let api: ConnectedAPI | null = null;
 
       // Approach 1: Try mnLace (standard Lace API)
@@ -295,17 +465,18 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
           console.log("⚠️ Connected API has no getConfiguration()");
         }
 
-        if (typeof api.getProvingProvider === "function") {
+        try {
           const provingProvider = await api.getProvingProvider(
             zkConfigProvider as never,
           );
           setWalletProofProvider(createProofProvider(provingProvider));
-          console.log("🧠 Using wallet proving provider");
-        } else {
-          setWalletProofProvider(null);
-          console.log(
-            "⚠️ Connected API has no getProvingProvider(); using HTTP proof provider",
+          console.log("🧠 Using wallet proving provider (FORCED)");
+        } catch (providerError) {
+          console.error(
+            "❌ CRITICAL: Failed to get wallet proving provider. This is required for compatibility:",
+            providerError,
           );
+          throw new Error("Wallet proving provider is required but not available. Please update your Lace wallet extension.");
         }
       } catch (providerError) {
         console.warn(
@@ -316,16 +487,21 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
       }
 
       // Get wallet addresses
-      let addresses: any;
+      let addresses: WalletAddressInfo | undefined;
       try {
+        const legacyApi = api as LegacyConnectedAPI;
         // Try different methods to get addresses
         if (typeof api.getShieldedAddresses === "function") {
           addresses = await api.getShieldedAddresses();
-        } else if (typeof (api as any).getAddresses === "function") {
-          addresses = await (api as any).getAddresses();
-        } else if (typeof (api as any).state === "function") {
-          const state = await (api as any).state();
-          addresses = state?.addresses || state;
+        } else if (typeof legacyApi.getAddresses === "function") {
+          addresses = await legacyApi.getAddresses();
+        } else if (typeof legacyApi.state === "function") {
+          const state = await legacyApi.state();
+          if ("addresses" in state) {
+            addresses = state.addresses;
+          } else {
+            addresses = state as WalletAddressInfo;
+          }
         }
       } catch (err) {
         console.error("Failed to get addresses:", err);
@@ -429,7 +605,7 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
 
     (async () => {
       try {
-        const api = (window as any)?.midnight?.mnLace;
+        const api = (window as MidnightWindow).midnight?.mnLace;
         if (api && typeof api.isEnabled === "function") {
           const enabled = await api.isEnabled();
           if (enabled && !cancelled && !isConnected) {

@@ -46,18 +46,11 @@ type DeployedGameContract = {
   privateState?: GamePrivateState;
 };
 
-type ContractRuntime = InstanceType<typeof Contract> & {
-  _derivePublicKey_0(secretKey: Uint8Array): Uint8Array;
-};
-
 // Pre-compile the game contract with ZK circuit assets and witnesses
 const gameCompiledContract = CompiledContract.make("game", Contract).pipe(
   CompiledContract.withWitnesses(witnesses),
   CompiledContract.withCompiledFileAssets("/zk-keys"),
 );
-const contractRuntime = new Contract(
-  witnesses as unknown as ConstructorParameters<typeof Contract>[0],
-) as ContractRuntime;
 
 const findDeployedContractUnsafe = findDeployedContract as unknown as (
   providers: MidnightGameProviders,
@@ -78,9 +71,7 @@ let currentProviders: MidnightGameProviders | null = null;
  * This ensures each wallet has a unique but consistent secret key
  * MUST match the witness function implementation exactly
  */
-function generateSecretKeyFromWallet(
-  walletAddress: string,
-): Uint8Array {
+function generateSecretKeyFromWallet(walletAddress: string): Uint8Array {
   // Create a deterministic key from wallet address
   const encoder = new TextEncoder();
   const data = encoder.encode(`framed-sk:${walletAddress}`);
@@ -113,16 +104,20 @@ export const connectToGame = async (
 
     // Generate secret key from wallet address for deterministic key derivation
     const secretKey = generateSecretKeyFromWallet(walletAddress);
+    const secretKeyHex = bytesToHex(secretKey);
 
     // Default private state for new players
     const privateState: GamePrivateState = initialPrivateState || {
+      secretKey: secretKeyHex,
       role: 99, // Unknown until assigned
       myVote: 0,
-      witnessedEvents: [],
-      secretKey, // Include the generated secret key
+      witnessedEvents: [] as ReadonlyArray<{
+        location: string;
+        roundId: number;
+      }>,
     };
 
-    console.log("🔑 Generated secret key for wallet");
+    console.log("🔑 Private state initialized for wallet");
 
     // Find and connect to the deployed contract
     gameContractInstance = await findDeployedContractUnsafe(providers, {
@@ -149,9 +144,22 @@ export const connectToGame = async (
  * Derive public key from secret key (matches contract logic)
  */
 const derivePublicKey = async (secretKey: Uint8Array): Promise<Uint8Array> => {
-  // Reuse the generated contract runtime so the client computes the exact
-  // same persistent hash as the Compact contract when deriving player IDs.
-  return contractRuntime._derivePublicKey_0(secretKey);
+  // Create prefix: pad(32, "framed:pk:")
+  const prefixStr = "framed:pk:";
+  const prefix = new Uint8Array(32);
+  const encoder = new TextEncoder();
+  const prefixBytes = encoder.encode(prefixStr);
+  prefix.set(prefixBytes);
+
+  // Concatenate prefix ++ secretKey (64 bytes total)
+  const combined = new Uint8Array(64);
+  combined.set(prefix, 0);
+  combined.set(secretKey, 32);
+
+  // Hash using SHA-256 (persistentHash in Compact uses SHA-256)
+  const hashBuffer = await crypto.subtle.digest("SHA-256", combined);
+
+  return new Uint8Array(hashBuffer);
 };
 
 /**
@@ -169,28 +177,21 @@ export const joinGame = async (walletAddress: string): Promise<string> => {
       | GamePrivateState
       | undefined;
 
-    console.log("   Private state exists:", !!privateState);
-
     if (!privateState) {
       throw new Error("Private state not initialized");
     }
 
-    let secretKey = privateState.secretKey;
+    const secretKeyHex = privateState.secretKey;
+    let secretKey: Uint8Array;
 
     // If secret key is not in private state, generate it
-    if (!secretKey) {
+    if (!secretKeyHex) {
       console.warn(
         "⚠️ Secret key not found in private state, generating new one",
       );
       secretKey = generateSecretKeyFromWallet(walletAddress);
-
-      // Update private state with the secret key
-      gameContractInstance.privateState = {
-        ...privateState,
-        secretKey,
-      };
-      
-      console.log("   Updated private state with new secret key");
+    } else {
+      secretKey = hexToBytes(secretKeyHex);
     }
 
     // Derive our public key BEFORE joining (so we know what to look for)
@@ -199,6 +200,7 @@ export const joinGame = async (walletAddress: string): Promise<string> => {
 
     console.log("🔑 Our derived public key:", derivedKeyHex);
     console.log("   Calling joinGame circuit...");
+    console.log("   Proof server should be at: http://localhost:6300");
 
     // Now join the game
     await gameContractInstance.callTx.joinGame();
@@ -208,13 +210,21 @@ export const joinGame = async (walletAddress: string): Promise<string> => {
     return derivedKeyHex;
   } catch (error) {
     console.error("❌ Failed to join game:", error);
-    
+
     // Log more details about the error
     if (error instanceof Error) {
       console.error("   Error message:", error.message);
       console.error("   Error stack:", error.stack);
+      
+      // Check if it's a proof server connection issue
+      if (error.message.includes("Unable to deserialize Transaction")) {
+        console.error("   ⚠️ This looks like a proof server communication issue");
+        console.error("   ⚠️ Make sure the proof server is running: docker ps | grep proof-server");
+        console.error("   ⚠️ Check proof server logs: docker logs skity-proof-server");
+        console.error("   ⚠️ Proof server should be accessible at http://localhost:6300");
+      }
     }
-    
+
     throw error;
   }
 };
@@ -545,20 +555,17 @@ export const getDerivedPublicKey = async (
       throw new Error("Private state not initialized");
     }
 
-    let secretKey = privateState.secretKey;
+    const secretKeyHex = privateState.secretKey;
+    let secretKey: Uint8Array;
 
     // If secret key is not in private state, generate it
-    if (!secretKey) {
+    if (!secretKeyHex) {
       console.warn(
         "⚠️ Secret key not found in private state, generating new one",
       );
       secretKey = generateSecretKeyFromWallet(walletAddress);
-
-      // Update private state with the secret key
-      gameContractInstance.privateState = {
-        ...privateState,
-        secretKey,
-      };
+    } else {
+      secretKey = hexToBytes(secretKeyHex);
     }
 
     // Derive our public key

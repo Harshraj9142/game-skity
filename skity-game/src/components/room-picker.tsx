@@ -10,7 +10,7 @@ const RoomPicker = ({
   onEnterRoom: (contractAddress: string, autoJoin: boolean) => void;
 }) => {
   // Default to the deployed preprod contract
-  const DEFAULT_CONTRACT = "476678147573d762835c63838cb217765e92c66e8490f063c29fcde67708bcb4";
+  const DEFAULT_CONTRACT = "62dff6d90bf35f68e939f9b42fd3220aba3ef5d2bc5e8de7cd9b0c591e9bfbfb";
   
   const [roomId, setRoomId] = useState("");
   const [copied, setCopied] = useState(false);
