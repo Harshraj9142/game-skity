@@ -86,6 +86,7 @@ export const useGameContract = (contractAddress?: string) => {
     try {
       if (!walletAddress) throw new Error('Wallet address not available');
       
+      console.log('🎮 Starting joinGame transaction...');
       const derivedKey = await midnight.joinGame(walletAddress);
       
       // Store the derived key in localStorage for this wallet
@@ -96,10 +97,24 @@ export const useGameContract = (contractAddress?: string) => {
         console.log('🔑 Derived key:', derivedKey);
       }
       
-      // Wait a moment for the transaction to be indexed
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      console.log('✅ Transaction submitted successfully!');
+      console.log('⏳ Waiting for transaction to be indexed (this can take 30-60 seconds)...');
       
-      await refreshGameState();
+      // Wait longer for the transaction to be indexed on Preprod
+      // Preprod network has ~20 second block times
+      await new Promise(resolve => setTimeout(resolve, 5000));
+      
+      console.log('🔄 Refreshing game state...');
+      
+      // Try to refresh state, but don't fail if it's not ready yet
+      try {
+        await refreshGameState();
+        console.log('✅ Game state refreshed successfully');
+      } catch (refreshError) {
+        console.warn('⚠️ Could not refresh game state immediately:', refreshError);
+        console.log('💡 The transaction may still be processing. Try refreshing in a moment.');
+        // Don't throw - the transaction was submitted successfully
+      }
       
       return derivedKey;
     } catch (err) {

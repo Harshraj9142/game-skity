@@ -203,7 +203,53 @@ export const joinGame = async (walletAddress: string): Promise<string> => {
     console.log("   Proof server should be at: http://localhost:6300");
 
     // Now join the game
-    await gameContractInstance.callTx.joinGame();
+    try {
+      await gameContractInstance.callTx.joinGame();
+    } catch (txError) {
+      console.error("❌ Transaction error details:");
+      console.error("   Error type:", txError?.constructor?.name);
+      console.error("   Error:", txError);
+      
+      // Try to extract more info from the error
+      if (txError && typeof txError === 'object') {
+        console.error("   Error keys:", Object.keys(txError));
+        if ('cause' in txError) {
+          console.error("   Error cause:", (txError as any).cause);
+          
+          // If it's an Effect-TS error, dig deeper
+          const cause = (txError as any).cause;
+          if (cause && typeof cause === 'object') {
+            console.error("   Cause keys:", Object.keys(cause));
+            if ('_tag' in cause) {
+              console.error("   Cause tag:", cause._tag);
+            }
+            if ('error' in cause) {
+              console.error("   Actual error:", cause.error);
+              
+              // Dig even deeper if needed
+              const actualError = cause.error;
+              if (actualError && typeof actualError === 'object') {
+                console.error("   Actual error keys:", Object.keys(actualError));
+                if ('message' in actualError) {
+                  console.error("   Actual error message:", actualError.message);
+                }
+                if ('stack' in actualError) {
+                  console.error("   Actual error stack:", actualError.stack);
+                }
+              }
+            }
+            if ('message' in cause) {
+              console.error("   Cause message:", cause.message);
+            }
+          }
+        }
+        if ('message' in txError) {
+          console.error("   Error message:", (txError as any).message);
+        }
+      }
+      
+      throw txError;
+    }
 
     console.log("✅ Joined game successfully. Derived key:", derivedKeyHex);
 
@@ -213,8 +259,15 @@ export const joinGame = async (walletAddress: string): Promise<string> => {
 
     // Log more details about the error
     if (error instanceof Error) {
+      console.error("   Error name:", error.name);
       console.error("   Error message:", error.message);
       console.error("   Error stack:", error.stack);
+      
+      // Check for cause
+      const errorWithCause = error as Error & { cause?: unknown };
+      if (errorWithCause.cause) {
+        console.error("   Error cause:", errorWithCause.cause);
+      }
       
       // Check if it's a proof server connection issue
       if (error.message.includes("Unable to deserialize Transaction")) {

@@ -240,42 +240,115 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
       },
       balanceTx: async (tx: UnboundTransaction) => {
         console.log("🧾 Balancing transaction via Lace");
-        console.log("   Unbound tx bytes:", tx.serialize().length);
-        console.log("   Unbound tx first 100 bytes:", Array.from(tx.serialize().slice(0, 100)).map(b => b.toString(16).padStart(2, '0')).join(''));
-
-        const encodings: Array<"hex" | "base64"> = ["hex", "base64"];
-        let lastError: unknown;
-
-        for (const encoding of encodings) {
-          const serializedTx = serializeTransaction(tx, encoding);
-          console.log(`   Trying ${encoding} encoding`);
-          console.log("   Serialized tx length:", serializedTx.length);
-          console.log("   Serialized tx first 200 chars:", serializedTx.substring(0, 200));
-
+        console.log("   Transaction type:", tx.constructor.name);
+        
+        try {
+          // Check if Lace is still connected
           try {
-            const result =
-              await connectedAPI.balanceUnsealedTransaction(serializedTx);
-
-            console.log("✅ Lace balanced transaction");
-            console.log("   Encoding:", encoding);
-            console.log("   Balanced tx string length:", result.tx.length);
-
-            const finalizedTx = deserializeBalancedTransaction(result.tx);
-            console.log(
-              "   Balanced tx identifiers:",
-              finalizedTx.identifiers(),
-            );
-            return finalizedTx;
-          } catch (error) {
-            lastError = error;
-            logUnknownError(
-              `❌ Failed while balancing transaction in Lace using ${encoding}:`,
-              error,
-            );
+            const status = await connectedAPI.getConnectionStatus();
+            console.log("   Lace connection status:", status);
+          } catch (statusError) {
+            console.warn("   Could not get Lace connection status:", statusError);
           }
-        }
+          
+          // Serialize the transaction - Lace expects hex-encoded string
+          const serializedBytes = tx.serialize();
+          const serializedHex = bytesToHex(serializedBytes);
+          
+          console.log("   Serialized tx bytes:", serializedBytes.length);
+          console.log("   Serialized tx hex length:", serializedHex.length);
+          console.log("   Serialized tx first 100 chars:", serializedHex.substring(0, 100));
+          
+          // Check if this looks like a properly formatted transaction
+          const txString = new TextDecoder().decode(serializedBytes.slice(0, 50));
+          console.log("   Transaction header (decoded):", txString);
 
-        throw lastError;
+          console.log("   Calling connectedAPI.balanceUnsealedTransaction...");
+          const result = await connectedAPI.balanceUnsealedTransaction(serializedHex);
+
+          console.log("✅ Lace balanced transaction");
+          console.log("   Balanced tx string length:", result.tx.length);
+          console.log("   Balanced tx first 100 chars:", result.tx.substring(0, 100));
+
+          const finalizedTx = deserializeBalancedTransaction(result.tx);
+          console.log("   Balanced tx identifiers:", finalizedTx.identifiers());
+          return finalizedTx;
+        } catch (error) {
+          console.error("❌ Failed while balancing transaction in Lace:");
+          console.error("   Error type:", error?.constructor?.name);
+          console.error("   Error message:", error instanceof Error ? error.message : String(error));
+          console.error("   Error string:", String(error));
+          console.error("   Full error:", error);
+          
+          // Try to extract any properties from the error
+          if (error && typeof error === 'object') {
+            console.error("   Error keys:", Object.keys(error));
+            for (const key of Object.keys(error)) {
+              console.error(`   error.${key}:`, (error as any)[key]);
+            }
+            
+            // Check for Effect-TS FiberFailure with cause
+            if ('_id' in error && (error as any)._id === 'FiberFailure') {
+              console.error("   🔍 This is an Effect-TS FiberFailure");
+              if ('cause' in error) {
+                const cause = (error as any).cause;
+                
+                // Deep-serialize the entire cause tree
+                try {
+                  console.error("   🔍 Cause (JSON):", JSON.stringify(cause, null, 2));
+                } catch {
+                  console.error("   🔍 Cause (not serializable):", cause);
+                }
+                
+                // Try to get the actual error from the cause
+                if (cause && typeof cause === 'object') {
+                  const allKeys = Object.keys(cause);
+                  console.error("   🔍 Cause keys:", allKeys);
+                  // Log every single property
+                  for (const key of allKeys) {
+                    console.error(`   🔍 cause.${key}:`, cause[key]);
+                  }
+                  if ('_tag' in cause) {
+                    console.error("   🔍 Cause tag:", cause._tag);
+                  }
+                  if ('error' in cause) {
+                    console.error("   🔍 Actual error:", cause.error);
+                    // If the error itself is an object, log its properties too
+                    const actualErr = cause.error;
+                    if (actualErr && typeof actualErr === 'object') {
+                      console.error("   🔍 Actual error keys:", Object.keys(actualErr));
+                      for (const k of Object.keys(actualErr)) {
+                        console.error(`   🔍 actualError.${k}:`, actualErr[k]);
+                      }
+                    }
+                  }
+                  if ('message' in cause) {
+                    console.error("   🔍 Cause message:", cause.message);
+                  }
+                }
+              }
+            }
+            
+            // Also try to check wallet balance
+            try {
+              const status = await connectedAPI.getConnectionStatus();
+              console.error("   💰 Wallet connection status during error:", status);
+            } catch (balErr) {
+              console.error("   💰 Could not check wallet status:", balErr);
+            }
+          }
+          
+          if (error instanceof Error && error.stack) {
+            console.error("   Stack trace:", error.stack);
+          }
+          
+          // Check if it's a Lace-specific error
+          if (error && typeof error === 'object' && 'code' in error) {
+            console.error("   Error code:", (error as any).code);
+          }
+          
+          throw error;
+        }
       },
     };
   }, [connectedAPI, walletAddress, encryptionPublicKey]);
@@ -293,39 +366,59 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
           console.log("   Finalized tx bytes:", tx.serialize().length);
           console.log("   Tx identifiers:", identifiers);
 
-          const encodings: Array<"hex" | "base64"> = ["hex", "base64"];
-          let lastError: unknown;
+          // Serialize the transaction as hex
+          const serializedBytes = tx.serialize();
+          const serializedHex = bytesToHex(serializedBytes);
+          
+          console.log("   Serialized tx hex length:", serializedHex.length);
+          console.log("   Serialized tx first 100 chars:", serializedHex.substring(0, 100));
 
-          for (const encoding of encodings) {
-            const serializedTx = serializeTransaction(tx, encoding);
-            console.log(`   Trying ${encoding} encoding`);
-            console.log("   Serialized tx length:", serializedTx.length);
+          try {
+            console.log("   ⏳ Calling Lace submitTransaction (this may take 30-60 seconds)...");
+            const startTime = Date.now();
+            
+            // Add a timeout wrapper
+            const submitPromise = connectedAPI.submitTransaction(serializedHex);
+            const timeoutPromise = new Promise((_, reject) => {
+              setTimeout(() => reject(new Error("Transaction submission timed out after 120 seconds")), 120000);
+            });
+            
+            await Promise.race([submitPromise, timeoutPromise]);
+            
+            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+            console.log(`   ✅ Transaction submitted successfully in ${elapsed}s`);
 
-            try {
-              await connectedAPI.submitTransaction(serializedTx);
-
-              const [txId] = identifiers;
-              if (!txId) {
-                throw new Error(
-                  "Wallet submitted transaction without an identifier",
-                );
-              }
-
-              console.log("✅ Lace accepted transaction");
-              console.log("   Encoding:", encoding);
-              console.log("   Tracking tx id:", txId);
-
-              return txId;
-            } catch (error) {
-              lastError = error;
-              logUnknownError(
-                `❌ Failed to submit transaction via Lace using ${encoding}:`,
-                error,
+            const [txId] = identifiers;
+            if (!txId) {
+              throw new Error(
+                "Wallet submitted transaction without an identifier",
               );
             }
-          }
 
-          throw lastError;
+            console.log("✅ Lace accepted transaction");
+            console.log("   Tracking tx id:", txId);
+            console.log("   ⏳ Transaction is being processed by the network...");
+            console.log("   💡 This can take 1-2 minutes for the transaction to be confirmed");
+
+            return txId;
+          } catch (error) {
+            console.error("❌ Failed to submit transaction via Lace:");
+            console.error("   Error type:", error?.constructor?.name);
+            console.error("   Error message:", error instanceof Error ? error.message : String(error));
+            console.error("   Full error:", error);
+            
+            // Check if it's a timeout
+            if (error instanceof Error && error.message.includes("timed out")) {
+              console.error("   💡 The transaction submission timed out.");
+              console.error("   💡 This could mean:");
+              console.error("      - The indexer is slow or unresponsive");
+              console.error("      - The network is congested");
+              console.error("      - Your internet connection is slow");
+              console.error("   💡 Try again in a few moments");
+            }
+            
+            throw error;
+          }
         } catch (error) {
           logUnknownError("Failed to submit transaction:", error);
           throw error;
@@ -338,10 +431,13 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
   const providers = useMemo<MidnightGameProviders | null>(() => {
     if (!walletProvider || !midnightProvider) return null;
 
-    // Use wallet's proof provider if available (matches wallet version),
-    // otherwise use HTTP proof provider
-    const selectedProofProvider = walletProofProvider ?? proofProvider;
-    console.log("🔧 Using proof provider:", walletProofProvider ? "wallet" : "HTTP");
+    // ALWAYS use HTTP proof provider for local development
+    // The wallet's proof provider may not have our custom contract's ZK keys
+    const selectedProofProvider = proofProvider;
+    console.log("🔧 Proof provider configuration:");
+    console.log("   Using: HTTP proof provider (localhost:6300)");
+    console.log("   Wallet proof provider available:", !!walletProofProvider);
+    console.log("   Reason: Custom contract ZK keys are on local proof server");
 
     return {
       privateStateProvider,
@@ -470,13 +566,13 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({ children }) => {
             zkConfigProvider as never,
           );
           setWalletProofProvider(createProofProvider(provingProvider));
-          console.log("🧠 Using wallet proving provider (FORCED)");
+          console.log("🧠 Using wallet proving provider");
         } catch (providerError) {
-          console.error(
-            "❌ CRITICAL: Failed to get wallet proving provider. This is required for compatibility:",
+          console.warn(
+            "⚠️ Failed to get wallet proving provider, will use HTTP proof provider:",
             providerError,
           );
-          throw new Error("Wallet proving provider is required but not available. Please update your Lace wallet extension.");
+          setWalletProofProvider(null);
         }
       } catch (providerError) {
         console.warn(
